@@ -8,22 +8,38 @@ import {
   Paper,
   Button,
   Snackbar,
-  Alert
+  Alert,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogContentText,
+  DialogActions
 } from '@mui/material';
 import { useSelector, useDispatch } from 'react-redux';
 import NavigationBar from '../components/NavigationBar';
-import DataTable from '../components/DataTable';
+import DataTable, { ColumnDefinition } from '../components/DataTable';
 import AddStaffForm from '../components/AddStaffForm';
 import ImportStaffModal from '../components/ImportStaffModal';
 import AddColumnModal from '../components/AddColumnModal';
+import AddProjectForm from '../components/AddProjectForm';
+import ImportProjectModal from '../components/ImportProjectModal';
 import { 
   StaffMember, 
   addStaffMember, 
-  addCustomField,
+  addCustomField as addStaffCustomField,
+  removeCustomField as removeStaffCustomField,
+  deleteStaffMember,
   setStaffMembers
 } from '../store/slices/staffSlice';
+import {
+  Project,
+  addProject,
+  addCustomField as addProjectCustomField,
+  removeCustomField as removeProjectCustomField,
+  deleteProject,
+  setProjects
+} from '../store/slices/projectSlice';
 import { RootState } from '../store';
-import { ColumnDefinition } from '../components/DataTable';
 
 // TabPanel component for tab content
 interface TabPanelProps {
@@ -55,9 +71,39 @@ const TabPanel = (props: TabPanelProps) => {
 
 const AddPage: React.FC = () => {
   const [tabValue, setTabValue] = useState(0);
+  
+  // Staff state
   const [openAddStaffForm, setOpenAddStaffForm] = useState(false);
-  const [openImportModal, setOpenImportModal] = useState(false);
+  const [openImportStaffModal, setOpenImportStaffModal] = useState(false);
+  
+  // Project state
+  const [openAddProjectForm, setOpenAddProjectForm] = useState(false);
+  const [openImportProjectModal, setOpenImportProjectModal] = useState(false);
+  
+  // Common state
   const [openAddColumnModal, setOpenAddColumnModal] = useState(false);
+  
+  // Delete confirmation dialogs
+  const [deleteStaffConfirmation, setDeleteStaffConfirmation] = useState<{
+    open: boolean;
+    staffId: string;
+    staffName: string;
+  }>({
+    open: false,
+    staffId: '',
+    staffName: ''
+  });
+  
+  const [deleteProjectConfirmation, setDeleteProjectConfirmation] = useState<{
+    open: boolean;
+    projectId: string;
+    projectName: string;
+  }>({
+    open: false,
+    projectId: '',
+    projectName: ''
+  });
+  
   const [snackbar, setSnackbar] = useState<{
     open: boolean;
     message: string;
@@ -70,12 +116,14 @@ const AddPage: React.FC = () => {
 
   // Redux
   const dispatch = useDispatch();
-  const { staffMembers, customFields } = useSelector((state: RootState) => state.staff);
+  const { staffMembers, customFields: staffCustomFields } = useSelector((state: RootState) => state.staff);
+  const { projects, customFields: projectCustomFields } = useSelector((state: RootState) => state.projects);
 
   const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
     setTabValue(newValue);
   };
 
+  // Staff handlers
   const handleAddStaffMember = (newStaffMember: StaffMember) => {
     dispatch(addStaffMember(newStaffMember));
     setSnackbar({
@@ -100,11 +148,122 @@ const AddPage: React.FC = () => {
     });
   };
 
-  const handleAddColumn = (columnName: string, dataType: string) => {
-    dispatch(addCustomField(columnName));
+  const handleDeleteStaffRow = (staffId: string) => {
+    // Find the staff member to get their name for the confirmation dialog
+    const staffMember = staffMembers.find(staff => staff.id === staffId);
+    
+    if (staffMember) {
+      setDeleteStaffConfirmation({
+        open: true,
+        staffId,
+        staffName: staffMember.name
+      });
+    }
+  };
+
+  const confirmDeleteStaff = () => {
+    dispatch(deleteStaffMember(deleteStaffConfirmation.staffId));
+    
     setSnackbar({
       open: true,
-      message: `Column "${columnName}" added successfully`,
+      message: `${deleteStaffConfirmation.staffName} was deleted successfully`,
+      severity: 'success'
+    });
+    
+    setDeleteStaffConfirmation({
+      open: false,
+      staffId: '',
+      staffName: ''
+    });
+  };
+
+  // Project handlers
+  const handleAddProject = (newProject: Project) => {
+    dispatch(addProject(newProject));
+    setSnackbar({
+      open: true,
+      message: 'Project added successfully',
+      severity: 'success'
+    });
+  };
+
+  const handleImportProjects = (newProjects: Project[]) => {
+    // Merge with existing projects, replacing any with duplicate IDs
+    const existingIds = new Set(projects.map(project => project.id));
+    const newProjectItems = newProjects.filter(project => !existingIds.has(project.id));
+    
+    const updatedProjects = [...projects, ...newProjectItems];
+    dispatch(setProjects(updatedProjects));
+    
+    setSnackbar({
+      open: true,
+      message: `${newProjects.length} projects imported successfully`,
+      severity: 'success'
+    });
+  };
+
+  const handleDeleteProjectRow = (projectId: string) => {
+    // Find the project to get its name for the confirmation dialog
+    const project = projects.find(p => p.id === projectId);
+    
+    if (project) {
+      setDeleteProjectConfirmation({
+        open: true,
+        projectId,
+        projectName: project.name
+      });
+    }
+  };
+
+  const confirmDeleteProject = () => {
+    dispatch(deleteProject(deleteProjectConfirmation.projectId));
+    
+    setSnackbar({
+      open: true,
+      message: `${deleteProjectConfirmation.projectName} was deleted successfully`,
+      severity: 'success'
+    });
+    
+    setDeleteProjectConfirmation({
+      open: false,
+      projectId: '',
+      projectName: ''
+    });
+  };
+
+  // Column handlers
+  const handleAddColumn = (columnName: string, dataType: string) => {
+    if (tabValue === 0) {
+      dispatch(addStaffCustomField(columnName));
+      setSnackbar({
+        open: true,
+        message: `Column "${columnName}" added to staff table successfully`,
+        severity: 'success'
+      });
+    } else {
+      dispatch(addProjectCustomField(columnName));
+      setSnackbar({
+        open: true,
+        message: `Column "${columnName}" added to projects table successfully`,
+        severity: 'success'
+      });
+    }
+  };
+
+  const handleDeleteStaffColumn = (columnName: string) => {
+    dispatch(removeStaffCustomField(columnName));
+    setSnackbar({
+      open: true,
+      message: `Column "${columnName}" removed from staff table successfully`,
+      severity: 'success'
+    });
+  };
+
+  const handleDeleteProjectColumn = (columnName: string) => {
+    dispatch(removeProjectCustomField(columnName));
+    setSnackbar({
+      open: true,
+      message: `Column "${columnName}" removed from projects table successfully`,
       severity: 'success'
     });
   };
@@ -125,7 +284,33 @@ const AddPage: React.FC = () => {
     ];
 
     // Add custom columns
-    const customColumnsDefinitions = customFields.map(field => ({
+    const customColumnsDefinitions = staffCustomFields.map(field => ({
+      field,
+      headerName: field,
+      width: 150
+    }));
+
+    return [...defaultColumns, ...customColumnsDefinitions];
+  };
+
+  const getProjectColumns = (): ColumnDefinition[] => {
+    const defaultColumns: ColumnDefinition[] = [
+      { field: 'name', headerName: 'Project Name', width: 200 },
+      { field: 'partnerName', headerName: 'Partner', width: 150 },
+      { field: 'teamLead', headerName: 'Team Lead', width: 150 },
+      { 
+        field: 'budget', 
+        headerName: 'Budget', 
+        width: 120,
+        renderCell: (value: any) => {
+          const budget = typeof value === 'number' ? value : 0;
+          return `$${budget.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+        }
+      }
+    ];
+
+    // Add custom columns
+    const customColumnsDefinitions = projectCustomFields.map(field => ({
       field,
       headerName: field,
       width: 150
@@ -176,7 +361,7 @@ const AddPage: React.FC = () => {
               variant="outlined" 
               color="primary" 
               fullWidth
-              onClick={() => setOpenImportModal(true)}
+              onClick={() => setOpenImportStaffModal(true)}
             >
               Import Staff Data
             </Button>
@@ -186,10 +371,21 @@ const AddPage: React.FC = () => {
             <Typography variant="body1" paragraph>
               Manage your project data here.
             </Typography>
-            <Button variant="contained" color="primary" fullWidth sx={{ mb: 2 }}>
+            <Button 
+              variant="contained" 
+              color="primary" 
+              fullWidth 
+              sx={{ mb: 2 }}
+              onClick={() => setOpenAddProjectForm(true)}
+            >
               Add Project
             </Button>
-            <Button variant="outlined" color="primary" fullWidth>
+            <Button 
+              variant="outlined" 
+              color="primary" 
+              fullWidth
+              onClick={() => setOpenImportProjectModal(true)}
+            >
               Import Project Data
             </Button>
           </TabPanel>
@@ -210,42 +406,121 @@ const AddPage: React.FC = () => {
                 data={staffMembers}
                 columns={getStaffColumns()}
                 onAddColumn={() => setOpenAddColumnModal(true)}
+                onDeleteColumn={handleDeleteStaffColumn}
+                onDeleteRow={handleDeleteStaffRow}
+                customFields={staffCustomFields}
                 emptyMessage="No staff members found. Add staff members using the form or import them from Excel/CSV."
               />
             </Box>
           ) : (
-            <Paper sx={{ p: 2 }}>
+            <Box>
               <Typography variant="h5" gutterBottom>
                 Projects
               </Typography>
-              <Typography variant="body1">
-                The projects table will be displayed here with columns for project name, partner name, team lead, and budget.
-              </Typography>
-            </Paper>
+              <DataTable
+                data={projects}
+                columns={getProjectColumns()}
+                onAddColumn={() => setOpenAddColumnModal(true)}
+                onDeleteColumn={handleDeleteProjectColumn}
+                onDeleteRow={handleDeleteProjectRow}
+                customFields={projectCustomFields}
+                emptyMessage="No projects found. Add projects using the form or import them from Excel/CSV."
+              />
+            </Box>
           )}
         </Box>
       </Box>
 
-      {/* Modals */}
+      {/* Staff Modals */}
       <AddStaffForm
         open={openAddStaffForm}
         onClose={() => setOpenAddStaffForm(false)}
         onAdd={handleAddStaffMember}
-        customFields={customFields}
+        customFields={staffCustomFields}
       />
 
       <ImportStaffModal
-        open={openImportModal}
-        onClose={() => setOpenImportModal(false)}
+        open={openImportStaffModal}
+        onClose={() => setOpenImportStaffModal(false)}
         onImport={handleImportStaff}
-        customFields={customFields}
+        customFields={staffCustomFields}
       />
 
+      {/* Project Modals */}
+      <AddProjectForm
+        open={openAddProjectForm}
+        onClose={() => setOpenAddProjectForm(false)}
+        onAdd={handleAddProject}
+        customFields={projectCustomFields}
+      />
+
+      <ImportProjectModal
+        open={openImportProjectModal}
+        onClose={() => setOpenImportProjectModal(false)}
+        onImport={handleImportProjects}
+        customFields={projectCustomFields}
+      />
+
+      {/* Common Modals */}
       <AddColumnModal
         open={openAddColumnModal}
         onClose={() => setOpenAddColumnModal(false)}
         onAdd={handleAddColumn}
       />
+
+      {/* Staff Delete Confirmation Dialog */}
+      <Dialog
+        open={deleteStaffConfirmation.open}
+        onClose={() => setDeleteStaffConfirmation({ ...deleteStaffConfirmation, open: false })}
+      >
+        <DialogTitle>Delete Staff Member</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Are you sure you want to delete {deleteStaffConfirmation.staffName}? This action cannot be undone.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button 
+            onClick={() => setDeleteStaffConfirmation({ ...deleteStaffConfirmation, open: false })}
+          >
+            Cancel
+          </Button>
+          <Button 
+            onClick={confirmDeleteStaff} 
+            color="error" 
+            variant="contained"
+          >
+            Delete
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Project Delete Confirmation Dialog */}
+      <Dialog
+        open={deleteProjectConfirmation.open}
+        onClose={() => setDeleteProjectConfirmation({ ...deleteProjectConfirmation, open: false })}
+      >
+        <DialogTitle>Delete Project</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Are you sure you want to delete {deleteProjectConfirmation.projectName}? This action cannot be undone.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button 
+            onClick={() => setDeleteProjectConfirmation({ ...deleteProjectConfirmation, open: false })}
+          >
+            Cancel
+          </Button>
+          <Button 
+            onClick={confirmDeleteProject} 
+            color="error" 
+            variant="contained"
+          >
+            Delete
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Feedback */}
       <Snackbar 
