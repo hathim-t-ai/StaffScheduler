@@ -24,6 +24,14 @@ import * as XLSX from 'xlsx';
 import { Project } from '../store/slices/projectSlice';
 import { v4 as uuidv4 } from 'uuid';
 
+/**
+ * Props for the ImportProjectModal component
+ * @interface ImportProjectModalProps
+ * @property {boolean} open - Controls visibility of the dialog
+ * @property {() => void} onClose - Callback function when the dialog is closed
+ * @property {(projects: Project[]) => void} onImport - Callback function when projects are imported
+ * @property {string[]} customFields - Array of custom field names to include in the mapping
+ */
 interface ImportProjectModalProps {
   open: boolean;
   onClose: () => void;
@@ -31,29 +39,55 @@ interface ImportProjectModalProps {
   customFields: string[];
 }
 
+/**
+ * Represents a mapping between a source column in the import file and a target field in the Project model
+ * @interface ColumnMapping
+ * @property {string} sourceColumn - The column name from the import file
+ * @property {string} targetField - The corresponding field name in the Project model
+ */
 interface ColumnMapping {
   sourceColumn: string;
   targetField: string;
 }
 
+/**
+ * ImportProjectModal Component
+ * 
+ * A multi-step modal dialog for importing projects from Excel/CSV files.
+ * Handles file upload, column mapping, data preview, and import confirmation.
+ * Includes validation and error handling.
+ */
 const ImportProjectModal: React.FC<ImportProjectModalProps> = ({ open, onClose, onImport, customFields }) => {
+  // State for multi-step wizard
   const [activeStep, setActiveStep] = useState(0);
+  
+  // File and data state
   const [file, setFile] = useState<File | null>(null);
   const [fileData, setFileData] = useState<Record<string, any>[]>([]);
   const [columnHeaders, setColumnHeaders] = useState<string[]>([]);
   const [columnMappings, setColumnMappings] = useState<ColumnMapping[]>([]);
   const [previewData, setPreviewData] = useState<Project[]>([]);
+  
+  // UI state
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  
+  // Ref for file input element
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Steps for the stepper component
   const steps = ['Select File', 'Map Columns', 'Preview & Import'];
 
+  // Fields required for a valid project
   const requiredFields = ['name', 'partnerName', 'teamLead', 'budget'];
   const defaultFields = [...requiredFields];
+  // All available fields including custom fields
   const availableTargetFields = [...defaultFields, ...customFields];
 
-  // Handler for file selection
+  /**
+   * Handles file selection and parses the file data
+   * @param {React.ChangeEvent<HTMLInputElement>} event - The file input change event
+   */
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     setError(null);
     const selectedFile = event.target.files?.[0];
@@ -132,7 +166,11 @@ const ImportProjectModal: React.FC<ImportProjectModalProps> = ({ open, onClose, 
     reader.readAsBinaryString(selectedFile);
   };
 
-  // Handler for column mapping changes
+  /**
+   * Updates the column mapping when a user changes a field mapping
+   * @param {string} sourceColumn - The source column name from the import file
+   * @param {string} targetField - The target field to map to
+   */
   const handleMappingChange = (sourceColumn: string, targetField: string) => {
     setColumnMappings(prevMappings => 
       prevMappings.map(mapping => 
@@ -143,7 +181,11 @@ const ImportProjectModal: React.FC<ImportProjectModalProps> = ({ open, onClose, 
     );
   };
 
-  // Generate preview data based on mappings
+  /**
+   * Generates preview data based on column mappings
+   * Validates that all required fields are mapped
+   * @returns {boolean} True if preview generation succeeds, false otherwise
+   */
   const generatePreview = () => {
     setError(null);
     

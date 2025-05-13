@@ -41,13 +41,25 @@ import {
 } from '../store/slices/projectSlice';
 import { RootState } from '../store';
 
-// TabPanel component for tab content
+/**
+ * Props for the TabPanel component
+ * @interface TabPanelProps
+ * @property {React.ReactNode} children - Content to be rendered in the tab panel
+ * @property {number} index - Index of this tab panel
+ * @property {number} value - Currently selected tab index
+ */
 interface TabPanelProps {
   children?: React.ReactNode;
   index: number;
   value: number;
 }
 
+/**
+ * TabPanel Component
+ * 
+ * Renders content for a specific tab based on the current selected tab value.
+ * Content is only rendered when the tab is active (value === index).
+ */
 const TabPanel = (props: TabPanelProps) => {
   const { children, value, index, ...other } = props;
 
@@ -69,7 +81,15 @@ const TabPanel = (props: TabPanelProps) => {
   );
 };
 
+/**
+ * AddPage Component
+ * 
+ * Main page for adding and managing staff members and projects.
+ * Features tabs for People and Projects, each with tables, add/import functionality,
+ * custom column management, and row-level operations.
+ */
 const AddPage: React.FC = () => {
+  // Tab state
   const [tabValue, setTabValue] = useState(0);
   
   // Staff state
@@ -104,6 +124,7 @@ const AddPage: React.FC = () => {
     projectName: ''
   });
   
+  // Notification state
   const [snackbar, setSnackbar] = useState<{
     open: boolean;
     message: string;
@@ -119,11 +140,19 @@ const AddPage: React.FC = () => {
   const { staffMembers, customFields: staffCustomFields } = useSelector((state: RootState) => state.staff);
   const { projects, customFields: projectCustomFields } = useSelector((state: RootState) => state.projects);
 
+  /**
+   * Handles tab change between People and Projects
+   * @param {React.SyntheticEvent} event - The tab change event
+   * @param {number} newValue - Index of the newly selected tab
+   */
   const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
     setTabValue(newValue);
   };
 
-  // Staff handlers
+  /**
+   * Adds a new staff member to the store
+   * @param {StaffMember} newStaffMember - Staff member to add
+   */
   const handleAddStaffMember = (newStaffMember: StaffMember) => {
     dispatch(addStaffMember(newStaffMember));
     setSnackbar({
@@ -133,6 +162,11 @@ const AddPage: React.FC = () => {
     });
   };
 
+  /**
+   * Imports multiple staff members from an external file
+   * Handles merging with existing data and prevents duplicate IDs
+   * @param {StaffMember[]} newStaffMembers - Array of staff members to import
+   */
   const handleImportStaff = (newStaffMembers: StaffMember[]) => {
     // Merge with existing staff members, replacing any with duplicate IDs
     const existingIds = new Set(staffMembers.map(staff => staff.id));
@@ -148,6 +182,10 @@ const AddPage: React.FC = () => {
     });
   };
 
+  /**
+   * Initiates the staff deletion process by opening a confirmation dialog
+   * @param {string} staffId - ID of the staff member to delete
+   */
   const handleDeleteStaffRow = (staffId: string) => {
     // Find the staff member to get their name for the confirmation dialog
     const staffMember = staffMembers.find(staff => staff.id === staffId);
@@ -161,6 +199,10 @@ const AddPage: React.FC = () => {
     }
   };
 
+  /**
+   * Completes the staff deletion after confirmation
+   * Dispatches the delete action and shows a success notification
+   */
   const confirmDeleteStaff = () => {
     dispatch(deleteStaffMember(deleteStaffConfirmation.staffId));
     
@@ -177,7 +219,10 @@ const AddPage: React.FC = () => {
     });
   };
 
-  // Project handlers
+  /**
+   * Adds a new project to the store
+   * @param {Project} newProject - Project to add
+   */
   const handleAddProject = (newProject: Project) => {
     dispatch(addProject(newProject));
     setSnackbar({
@@ -187,6 +232,11 @@ const AddPage: React.FC = () => {
     });
   };
 
+  /**
+   * Imports multiple projects from an external file
+   * Handles merging with existing data and prevents duplicate IDs
+   * @param {Project[]} newProjects - Array of projects to import
+   */
   const handleImportProjects = (newProjects: Project[]) => {
     // Merge with existing projects, replacing any with duplicate IDs
     const existingIds = new Set(projects.map(project => project.id));
@@ -202,9 +252,13 @@ const AddPage: React.FC = () => {
     });
   };
 
+  /**
+   * Initiates the project deletion process by opening a confirmation dialog
+   * @param {string} projectId - ID of the project to delete
+   */
   const handleDeleteProjectRow = (projectId: string) => {
     // Find the project to get its name for the confirmation dialog
-    const project = projects.find(p => p.id === projectId);
+    const project = projects.find(project => project.id === projectId);
     
     if (project) {
       setDeleteProjectConfirmation({
@@ -215,6 +269,10 @@ const AddPage: React.FC = () => {
     }
   };
 
+  /**
+   * Completes the project deletion after confirmation
+   * Dispatches the delete action and shows a success notification
+   */
   const confirmDeleteProject = () => {
     dispatch(deleteProject(deleteProjectConfirmation.projectId));
     
@@ -231,92 +289,130 @@ const AddPage: React.FC = () => {
     });
   };
 
-  // Column handlers
+  /**
+   * Adds a custom column to either staff or project data model based on current tab
+   * @param {string} columnName - Name of the column to add
+   * @param {string} dataType - Data type of the column
+   */
   const handleAddColumn = (columnName: string, dataType: string) => {
+    // Add column to appropriate slice based on active tab
     if (tabValue === 0) {
+      // Add to staff
       dispatch(addStaffCustomField(columnName));
       setSnackbar({
         open: true,
-        message: `Column "${columnName}" added to staff table successfully`,
+        message: `Column "${columnName}" added to People successfully`,
         severity: 'success'
       });
     } else {
+      // Add to projects
       dispatch(addProjectCustomField(columnName));
       setSnackbar({
         open: true,
-        message: `Column "${columnName}" added to projects table successfully`,
+        message: `Column "${columnName}" added to Projects successfully`,
         severity: 'success'
       });
     }
+    
+    setOpenAddColumnModal(false);
   };
 
+  /**
+   * Removes a custom column from the staff data model
+   * @param {string} columnName - Name of the column to remove
+   */
   const handleDeleteStaffColumn = (columnName: string) => {
     dispatch(removeStaffCustomField(columnName));
     setSnackbar({
       open: true,
-      message: `Column "${columnName}" removed from staff table successfully`,
+      message: `Column "${columnName}" removed from People successfully`,
       severity: 'success'
     });
   };
 
+  /**
+   * Removes a custom column from the project data model
+   * @param {string} columnName - Name of the column to remove
+   */
   const handleDeleteProjectColumn = (columnName: string) => {
     dispatch(removeProjectCustomField(columnName));
     setSnackbar({
       open: true,
-      message: `Column "${columnName}" removed from projects table successfully`,
+      message: `Column "${columnName}" removed from Projects successfully`,
       severity: 'success'
     });
   };
 
+  /**
+   * Closes the notification snackbar
+   */
   const handleCloseSnackbar = () => {
-    setSnackbar({ ...snackbar, open: false });
+    setSnackbar({
+      ...snackbar,
+      open: false
+    });
   };
 
-  // Define table columns
+  /**
+   * Generates column definitions for the staff data table
+   * @returns {ColumnDefinition[]} Array of column definitions for the DataTable component
+   */
   const getStaffColumns = (): ColumnDefinition[] => {
-    const defaultColumns: ColumnDefinition[] = [
-      { field: 'name', headerName: 'Name', width: 150 },
-      { field: 'grade', headerName: 'Grade', width: 100 },
-      { field: 'department', headerName: 'Department', width: 150 },
+    // Standard columns
+    const standardColumns: ColumnDefinition[] = [
+      { field: 'name', headerName: 'Name', width: 180 },
+      { field: 'grade', headerName: 'Grade', width: 120 },
+      { field: 'department', headerName: 'Department', width: 160 },
       { field: 'city', headerName: 'City', width: 150 },
       { field: 'country', headerName: 'Country', width: 150 },
-      { field: 'skills', headerName: 'Skills', width: 200 }
+      { field: 'skills', headerName: 'Skills', width: 200 },
     ];
-
-    // Add custom columns
-    const customColumnsDefinitions = staffCustomFields.map(field => ({
+    
+    // Custom columns
+    const customColumns: ColumnDefinition[] = staffCustomFields.map(field => ({
       field,
       headerName: field,
-      width: 150
+      width: 150,
+      isCustom: true,
+      onDelete: () => handleDeleteStaffColumn(field)
     }));
-
-    return [...defaultColumns, ...customColumnsDefinitions];
+    
+    return [...standardColumns, ...customColumns];
   };
 
+  /**
+   * Generates column definitions for the project data table
+   * @returns {ColumnDefinition[]} Array of column definitions for the DataTable component
+   */
   const getProjectColumns = (): ColumnDefinition[] => {
-    const defaultColumns: ColumnDefinition[] = [
+    // Standard columns
+    const standardColumns: ColumnDefinition[] = [
       { field: 'name', headerName: 'Project Name', width: 200 },
-      { field: 'partnerName', headerName: 'Partner', width: 150 },
-      { field: 'teamLead', headerName: 'Team Lead', width: 150 },
+      { field: 'partnerName', headerName: 'Partner', width: 180 },
+      { field: 'teamLead', headerName: 'Team Lead', width: 180 },
       { 
         field: 'budget', 
         headerName: 'Budget', 
-        width: 120,
+        width: 150,
+        // Format budget as currency
         renderCell: (value: any) => {
-          const budget = typeof value === 'number' ? value : 0;
-          return `$${budget.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+          return typeof value === 'number' 
+            ? `$${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` 
+            : value;
         }
-      }
+      },
     ];
-
-    // Add custom columns
-    const customColumnsDefinitions = projectCustomFields.map(field => ({
+    
+    // Custom columns
+    const customColumns: ColumnDefinition[] = projectCustomFields.map(field => ({
       field,
       headerName: field,
-      width: 150
+      width: 150,
+      isCustom: true,
+      onDelete: () => handleDeleteProjectColumn(field)
     }));
-
-    return [...defaultColumns, ...customColumnsDefinitions];
+    
+    return [...standardColumns, ...customColumns];
   };
 
   return (
