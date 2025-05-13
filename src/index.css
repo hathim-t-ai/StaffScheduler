@@ -1,0 +1,84 @@
+/* Import Roboto font as specified in PRD */
+@import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap');
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  height: 100%;
+  font-family: 'Roboto', Arial, sans-serif;
+  font-size: 14px;
+  color: #212121;
+  background-color: #FFFFFF;
+}
+
+#root {
+  height: 100%;
+}
+
+/* Improve scroll behavior */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Improve accessibility for focus */
+:focus {
+  outline: 2px solid #1976D2;
+  outline-offset: 2px;
+}
+
+/* Remove focus outline for mouse users, keep for keyboard users */
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* Basic responsive typography */
+h1 {
+  font-size: 24px;
+  font-weight: 500;
+}
+
+h2 {
+  font-size: 20px;
+  font-weight: 500;
+}
+
+h3 {
+  font-size: 18px;
+  font-weight: 500;
+}
+
+p {
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* Basic utility classes */
+.text-center {
+  text-align: center;
+}
+
+.container {
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 16px;
+}
+
+/* Responsive breakpoints */
+@media (max-width: 768px) {
+  h1 {
+    font-size: 20px;
+  }
+  
+  h2 {
+    font-size: 18px;
+  }
+  
+  h3 {
+    font-size: 16px;
+  }
+} 
