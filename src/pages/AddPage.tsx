@@ -6,9 +6,24 @@ import {
   Tab, 
   Typography, 
   Paper,
-  Button
+  Button,
+  Snackbar,
+  Alert
 } from '@mui/material';
+import { useSelector, useDispatch } from 'react-redux';
 import NavigationBar from '../components/NavigationBar';
+import DataTable from '../components/DataTable';
+import AddStaffForm from '../components/AddStaffForm';
+import ImportStaffModal from '../components/ImportStaffModal';
+import AddColumnModal from '../components/AddColumnModal';
+import { 
+  StaffMember, 
+  addStaffMember, 
+  addCustomField,
+  setStaffMembers
+} from '../store/slices/staffSlice';
+import { RootState } from '../store';
+import { ColumnDefinition } from '../components/DataTable';
 
 // TabPanel component for tab content
 interface TabPanelProps {
@@ -40,9 +55,83 @@ const TabPanel = (props: TabPanelProps) => {
 
 const AddPage: React.FC = () => {
   const [tabValue, setTabValue] = useState(0);
+  const [openAddStaffForm, setOpenAddStaffForm] = useState(false);
+  const [openImportModal, setOpenImportModal] = useState(false);
+  const [openAddColumnModal, setOpenAddColumnModal] = useState(false);
+  const [snackbar, setSnackbar] = useState<{
+    open: boolean;
+    message: string;
+    severity: 'success' | 'error' | 'info' | 'warning';
+  }>({
+    open: false,
+    message: '',
+    severity: 'success'
+  });
+
+  // Redux
+  const dispatch = useDispatch();
+  const { staffMembers, customFields } = useSelector((state: RootState) => state.staff);
 
   const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
     setTabValue(newValue);
+  };
+
+  const handleAddStaffMember = (newStaffMember: StaffMember) => {
+    dispatch(addStaffMember(newStaffMember));
+    setSnackbar({
+      open: true,
+      message: 'Staff member added successfully',
+      severity: 'success'
+    });
+  };
+
+  const handleImportStaff = (newStaffMembers: StaffMember[]) => {
+    // Merge with existing staff members, replacing any with duplicate IDs
+    const existingIds = new Set(staffMembers.map(staff => staff.id));
+    const newStaff = newStaffMembers.filter(staff => !existingIds.has(staff.id));
+    
+    const updatedStaffMembers = [...staffMembers, ...newStaff];
+    dispatch(setStaffMembers(updatedStaffMembers));
+    
+    setSnackbar({
+      open: true,
+      message: `${newStaffMembers.length} staff members imported successfully`,
+      severity: 'success'
+    });
+  };
+
+  const handleAddColumn = (columnName: string, dataType: string) => {
+    dispatch(addCustomField(columnName));
+    setSnackbar({
+      open: true,
+      message: `Column "${columnName}" added successfully`,
+      severity: 'success'
+    });
+  };
+
+  const handleCloseSnackbar = () => {
+    setSnackbar({ ...snackbar, open: false });
+  };
+
+  // Define table columns
+  const getStaffColumns = (): ColumnDefinition[] => {
+    const defaultColumns: ColumnDefinition[] = [
+      { field: 'name', headerName: 'Name', width: 150 },
+      { field: 'grade', headerName: 'Grade', width: 100 },
+      { field: 'department', headerName: 'Department', width: 150 },
+      { field: 'city', headerName: 'City', width: 150 },
+      { field: 'country', headerName: 'Country', width: 150 },
+      { field: 'skills', headerName: 'Skills', width: 200 }
+    ];
+
+    // Add custom columns
+    const customColumnsDefinitions = customFields.map(field => ({
+      field,
+      headerName: field,
+      width: 150
+    }));
+
+    return [...defaultColumns, ...customColumnsDefinitions];
   };
 
   return (
@@ -74,10 +163,21 @@ const AddPage: React.FC = () => {
             <Typography variant="body1" paragraph>
               Manage your staff data here.
             </Typography>
-            <Button variant="contained" color="primary" fullWidth sx={{ mb: 2 }}>
+            <Button 
+              variant="contained" 
+              color="primary" 
+              fullWidth 
+              sx={{ mb: 2 }}
+              onClick={() => setOpenAddStaffForm(true)}
+            >
               Add Staff Member
             </Button>
-            <Button variant="outlined" color="primary" fullWidth>
+            <Button 
+              variant="outlined" 
+              color="primary" 
+              fullWidth
+              onClick={() => setOpenImportModal(true)}
+            >
               Import Staff Data
             </Button>
           </TabPanel>
@@ -102,17 +202,20 @@ const AddPage: React.FC = () => {
           overflow: 'auto'
         }}>
           {tabValue === 0 ? (
-            <Paper sx={{ p: 2 }}>
-              <Typography variant="h2" gutterBottom>
+            <Box>
+              <Typography variant="h5" gutterBottom>
                 Staff Members
               </Typography>
-              <Typography variant="body1">
-                The staff table will be displayed here with columns for name, grade, department, location, and skills.
-              </Typography>
-            </Paper>
+              <DataTable
+                data={staffMembers}
+                columns={getStaffColumns()}
+                onAddColumn={() => setOpenAddColumnModal(true)}
+                emptyMessage="No staff members found. Add staff members using the form or import them from Excel/CSV."
+              />
+            </Box>
           ) : (
             <Paper sx={{ p: 2 }}>
-              <Typography variant="h2" gutterBottom>
+              <Typography variant="h5" gutterBottom>
                 Projects
               </Typography>
               <Typography variant="body1">
@@ -122,6 +225,43 @@ const AddPage: React.FC = () => {
           )}
         </Box>
       </Box>
+
+      {/* Modals */}
+      <AddStaffForm
+        open={openAddStaffForm}
+        onClose={() => setOpenAddStaffForm(false)}
+        onAdd={handleAddStaffMember}
+        customFields={customFields}
+      />
+
+      <ImportStaffModal
+        open={openImportModal}
+        onClose={() => setOpenImportModal(false)}
+        onImport={handleImportStaff}
+        customFields={customFields}
+      />
+
+      <AddColumnModal
+        open={openAddColumnModal}
+        onClose={() => setOpenAddColumnModal(false)}
+        onAdd={handleAddColumn}
+      />
+
+      {/* Feedback */}
+      <Snackbar 
+        open={snackbar.open} 
+        autoHideDuration={6000} 
+        onClose={handleCloseSnackbar}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert 
+          onClose={handleCloseSnackbar} 
+          severity={snackbar.severity}
+          sx={{ width: '100%' }}
+        >
+          {snackbar.message}
+        </Alert>
+      </Snackbar>
     </Container>
   );
 };

@@ -5,7 +5,8 @@ export interface StaffMember {
   name: string;
   grade: string;
   department: string;
-  location: string;
+  city: string;
+  country: string;
   skills: string[];
   [key: string]: any; // For custom fields
 }
