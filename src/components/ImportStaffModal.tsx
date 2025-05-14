@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import {
   Dialog,
   DialogTitle,
@@ -65,8 +65,35 @@ const ImportStaffModal: React.FC<ImportStaffModalProps> = ({ open, onClose, onIm
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
+        console.log("File loaded successfully");
         const data = e.target?.result;
-        const workbook = XLSX.read(data, { type: 'binary' });
+        let workbook;
+        
+        // Process based on file type
+        if (selectedFile.name.toLowerCase().endsWith('.csv')) {
+          // Handle CSV files - data should be text
+          console.log("Processing CSV data");
+          const csvData = data as string;
+          workbook = XLSX.read(csvData, { type: 'string' });
+        } else {
+          // Handle Excel files
+          console.log("Processing Excel data");
+          try {
+            // Try array buffer first (modern browsers)
+            workbook = XLSX.read(data, { type: 'array' });
+          } catch (error) {
+            console.error("Array buffer parsing failed, trying binary", error);
+            // Fallback for older browsers
+            let binary = "";
+            const bytes = new Uint8Array(data as ArrayBuffer);
+            const length = bytes.byteLength;
+            for (let i = 0; i < length; i++) {
+              binary += String.fromCharCode(bytes[i]);
+            }
+            workbook = XLSX.read(binary, { type: 'binary' });
+          }
+        }
+        
         const sheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[sheetName];
         const json = XLSX.utils.sheet_to_json(worksheet) as Record<string, any>[];
@@ -122,7 +149,14 @@ const ImportStaffModal: React.FC<ImportStaffModalProps> = ({ open, onClose, onIm
       setLoading(false);
     };
 
-    reader.readAsBinaryString(selectedFile);
+    // Use readAsArrayBuffer for better browser compatibility
+    if (selectedFile.name.toLowerCase().endsWith('.csv')) {
+      // For CSV files, use text reading
+      reader.readAsText(selectedFile);
+    } else {
+      // For Excel files, use array buffer
+      reader.readAsArrayBuffer(selectedFile);
+    }
   };
 
   // Handler for column mapping changes
@@ -245,6 +279,12 @@ const ImportStaffModal: React.FC<ImportStaffModalProps> = ({ open, onClose, onIm
     return duplicates.length;
   };
 
+  const handleBrowseClick = useCallback(() => {
+    if (fileInputRef.current) {
+      fileInputRef.current.click();
+    }
+  }, []);
+
   return (
     <Dialog 
       open={open} 
@@ -280,30 +320,61 @@ const ImportStaffModal: React.FC<ImportStaffModalProps> = ({ open, onClose, onIm
               onChange={handleFileChange}
               style={{ display: 'none' }}
               ref={fileInputRef}
+              id="staff-file-upload"
             />
-            <Paper
+            
+            <Paper 
               elevation={3}
               sx={{ 
                 p: 5, 
-                cursor: 'pointer',
-                borderStyle: 'dashed',
-                borderWidth: 2,
+                borderRadius: 2,
+                border: '2px dashed',
                 borderColor: 'divider',
-                '&:hover': { borderColor: 'primary.main' }
+                cursor: 'pointer',
+                transition: 'all 0.2s ease-in-out',
+                '&:hover': {
+                  borderColor: 'primary.main',
+                  bgcolor: 'rgba(25, 118, 210, 0.04)'
+                }
               }}
-              onClick={() => fileInputRef.current?.click()}
+              onClick={handleBrowseClick}
             >
               <CloudUploadIcon color="primary" sx={{ fontSize: 60, mb: 2 }} />
               <Typography variant="h6" gutterBottom>
-                Click to upload Excel or CSV file
+                Upload Excel or CSV file
               </Typography>
-              <Typography variant="body2" color="textSecondary">
+              <Typography variant="body2" color="textSecondary" sx={{ mb: 3 }}>
                 Supported formats: .xlsx, .xls, .csv
               </Typography>
-              {file && (
-                <Typography variant="body1" sx={{ mt: 2 }}>
-                  Selected file: {file.name}
-                </Typography>
+              
+              {file ? (
+                <Box>
+                  <Typography variant="body1" sx={{ mb: 2 }}>
+                    Selected file: <b>{file.name}</b>
+                  </Typography>
+                  <Button 
+                    variant="outlined" 
+                    color="primary"
+                    onClick={(e) => {
+                      e.stopPropagation(); // Prevent the Paper click handler from triggering
+                      handleBrowseClick();
+                    }}
+                  >
+                    Change File
+                  </Button>
+                </Box>
+              ) : (
+                <Button 
+                  variant="contained" 
+                  color="primary"
+                  component="span"
+                  onClick={(e) => {
+                    e.stopPropagation(); // This is redundant but added for clarity
+                    handleBrowseClick();
+                  }}
+                >
+                  Select File
+                </Button>
               )}
             </Paper>
           </Box>
@@ -324,11 +395,11 @@ const ImportStaffModal: React.FC<ImportStaffModalProps> = ({ open, onClose, onIm
               {columnMappings.map((mapping, index) => (
                 <Grid item xs={12} sm={6} key={index}>
                   <FormControl fullWidth>
-                    <InputLabel>Map "{mapping.sourceColumn}" to:</InputLabel>
+                    <InputLabel>Map &quot;{mapping.sourceColumn}&quot; to:</InputLabel>
                     <Select
                       value={mapping.targetField}
                       onChange={(e) => handleMappingChange(mapping.sourceColumn, e.target.value)}
-                      label={`Map "${mapping.sourceColumn}" to:`}
+                      label={`Map &quot;${mapping.sourceColumn}&quot; to:`}
                     >
                       <MenuItem value="">Not Mapped</MenuItem>
                       {availableTargetFields.map(field => (
