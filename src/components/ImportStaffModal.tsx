@@ -65,24 +65,24 @@ const ImportStaffModal: React.FC<ImportStaffModalProps> = ({ open, onClose, onIm
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
-        console.log("File loaded successfully");
+        // console.log("File loaded successfully");
         const data = e.target?.result;
         let workbook;
         
         // Process based on file type
         if (selectedFile.name.toLowerCase().endsWith('.csv')) {
           // Handle CSV files - data should be text
-          console.log("Processing CSV data");
+          // console.log("Processing CSV data");
           const csvData = data as string;
           workbook = XLSX.read(csvData, { type: 'string' });
         } else {
           // Handle Excel files
-          console.log("Processing Excel data");
+          // console.log("Processing Excel data");
           try {
             // Try array buffer first (modern browsers)
             workbook = XLSX.read(data, { type: 'array' });
           } catch (error) {
-            console.error("Array buffer parsing failed, trying binary", error);
+            // console.error("Array buffer parsing failed, trying binary", error);
             // Fallback for older browsers
             let binary = "";
             const bytes = new Uint8Array(data as ArrayBuffer);
@@ -105,6 +105,9 @@ const ImportStaffModal: React.FC<ImportStaffModalProps> = ({ open, onClose, onIm
           return;
         }
 
+        // Log the imported data for debugging
+        // console.log('Imported Excel/CSV data:', json);
+        
         setFileData(json);
         
         // Extract column headers
@@ -129,6 +132,7 @@ const ImportStaffModal: React.FC<ImportStaffModalProps> = ({ open, onClose, onIm
           });
 
           setColumnMappings(initialMappings);
+          // console.log('Initial column mappings:', initialMappings);
         } else {
           setError('The file data is not in the expected format');
           setFile(null);
@@ -136,7 +140,7 @@ const ImportStaffModal: React.FC<ImportStaffModalProps> = ({ open, onClose, onIm
         
         setLoading(false);
       } catch (err) {
-        console.error('Error processing file:', err);
+        // console.error('Error processing file:', err);
         setError('Failed to process the file. Please make sure it is a valid Excel or CSV file.');
         setFile(null);
         setLoading(false);
@@ -200,12 +204,35 @@ const ImportStaffModal: React.FC<ImportStaffModalProps> = ({ open, onClose, onIm
           if (!mapping.targetField) return; // Skip unmapped columns
           
           const value = row[mapping.sourceColumn];
+          // console.log(`Mapping ${mapping.sourceColumn} -> ${mapping.targetField}:`, value);
           
           if (mapping.targetField === 'skills') {
             // Handle skills as array (comma-separated values)
-            staffMember.skills = value 
-              ? String(value || '').split(',').map(s => s.trim()).filter(Boolean)
-              : [];
+            let skillsArray: string[] = [];
+            
+            // Special handling for Excel skills data
+            if (value !== undefined && value !== null) {
+              // Convert the value to a string first to handle all types
+              const stringValue = String(value).trim();
+              
+              // If value is empty, use empty array
+              if (!stringValue) {
+                skillsArray = [];
+              }
+              // If it contains commas, split by commas
+              else if (stringValue.includes(',')) {
+                skillsArray = stringValue.split(',')
+                  .map(skill => skill.trim())
+                  .filter(Boolean); // Remove empty entries
+              }
+              // Otherwise use as a single skill
+              else {
+                skillsArray = [stringValue];
+              }
+            }
+            
+            // console.log('Processed skills array:', skillsArray);
+            staffMember.skills = skillsArray;
           } else {
             // Handle other fields as strings, ensuring they're not null/undefined
             staffMember[mapping.targetField] = value !== undefined && value !== null ? String(value) : '';
@@ -215,10 +242,11 @@ const ImportStaffModal: React.FC<ImportStaffModalProps> = ({ open, onClose, onIm
         return staffMember as StaffMember;
       });
       
+      // console.log('Generated preview data:', transformed);
       setPreviewData(transformed);
       return true;
     } catch (err) {
-      console.error('Error generating preview:', err);
+      // console.error('Error generating preview:', err);
       setError('Failed to generate preview data');
       return false;
     }
@@ -241,7 +269,17 @@ const ImportStaffModal: React.FC<ImportStaffModalProps> = ({ open, onClose, onIm
   };
 
   const handleImport = () => {
-    onImport(previewData);
+    // Ensure skills are always arrays before import
+    const normalizedData = previewData.map(staff => ({
+      ...staff,
+      skills: Array.isArray(staff.skills) 
+        ? staff.skills.map(skill => String(skill).trim()).filter(Boolean)
+        : (typeof staff.skills === 'string'
+            ? (staff.skills as string).split(',').map((s: string) => s.trim()).filter(Boolean) 
+            : [])
+    }));
+    
+    onImport(normalizedData);
     handleClose();
   };
 
@@ -393,7 +431,7 @@ const ImportStaffModal: React.FC<ImportStaffModalProps> = ({ open, onClose, onIm
             
             <Grid container spacing={2} sx={{ mt: 1 }}>
               {columnMappings.map((mapping, index) => (
-                <Grid item xs={12} sm={6} key={index}>
+                <Grid item xs={12} sm={6} key={`mapping-${index}`}>
                   <FormControl fullWidth>
                     <InputLabel>Map &quot;{mapping.sourceColumn}&quot; to:</InputLabel>
                     <Select
@@ -476,7 +514,7 @@ const ImportStaffModal: React.FC<ImportStaffModalProps> = ({ open, onClose, onIm
                 
                 {previewData.slice(0, 5).map((row, rowIndex) => (
                   <Box 
-                    key={rowIndex}
+                    key={`preview-row-${rowIndex}`}
                     sx={{ 
                       px: 2, 
                       py: 1,
@@ -485,10 +523,10 @@ const ImportStaffModal: React.FC<ImportStaffModalProps> = ({ open, onClose, onIm
                       borderColor: 'divider'
                     }}
                   >
-                    {availableTargetFields.map(field => 
+                    {availableTargetFields.map((field, fieldIndex) => 
                       columnMappings.some(mapping => mapping.targetField === field) && (
                         <Typography 
-                          key={field}
+                          key={`${field}-${rowIndex}-${fieldIndex}`}
                           variant="body2" 
                           sx={{ 
                             flex: 1, 
@@ -498,7 +536,9 @@ const ImportStaffModal: React.FC<ImportStaffModalProps> = ({ open, onClose, onIm
                           }}
                         >
                           {field === 'skills' 
-                            ? (row[field] || []).join(', ')
+                            ? (Array.isArray(row[field]) && row[field].length > 0
+                                ? row[field].join(', ')
+                                : '')
                             : row[field] || ''}
                         </Typography>
                       )

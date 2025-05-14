@@ -76,6 +76,9 @@ staff-scheduler/
 - Use 2-space indentation for all files
 - Follow camelCase for variables and PascalCase for components
 - Keep functions small and focused on a single responsibility
+- Limit files to a maximum of 350 lines of code
+- Extract complex logic into custom hooks or utility functions
+- Split large components into smaller, reusable components
 - Optimize for performance by preventing unnecessary re-renders
 - Implement proper error handling and input validation
 - Write meaningful commit messages following conventional commits format

@@ -19,12 +19,80 @@ interface StaffState {
   customFields: string[];
 }
 
+// Helper function to normalize skills to array format
+const normalizeSkills = (skills: unknown): string[] => {
+  // If it's already an array, just return it
+  if (Array.isArray(skills)) {
+    return skills.map(skill => String(skill).trim()).filter(Boolean);
+  }
+  
+  // If it's undefined or null, return empty array
+  if (skills === undefined || skills === null) {
+    return [];
+  }
+  
+  // If it's a string, split by commas
+  if (typeof skills === 'string') {
+    return skills.split(',').map(s => s.trim()).filter(Boolean);
+  }
+  
+  // If it's a stringified JSON array, parse it
+  if (typeof skills === 'string') {
+    try {
+      const parsed = JSON.parse(skills);
+      if (Array.isArray(parsed)) {
+        return parsed.map(s => String(s).trim()).filter(Boolean);
+      }
+    } catch (e) {
+      // Not a JSON string, continue with other methods
+    }
+  }
+  
+  // If it's an object, try to get values
+  if (typeof skills === 'object' && skills !== null) {
+    try {
+      const values = Object.values(skills);
+      return values.map(v => String(v).trim()).filter(Boolean);
+    } catch (e) {
+      // Failed to get values
+    }
+  }
+  
+  // Last resort: convert to string and check if it should be split
+  try {
+    const str = String(skills).trim();
+    if (str.includes(',')) {
+      return str.split(',').map(s => s.trim()).filter(Boolean);
+    }
+    return str ? [str] : [];
+  } catch (e) {
+    return [];
+  }
+};
+
 // Load initial state from localStorage if available
 const loadState = (): StaffState => {
   try {
     const savedState = localStorage.getItem('staffData');
     if (savedState) {
-      return JSON.parse(savedState);
+      const parsedState = JSON.parse(savedState);
+      
+      // Ensure skills are always arrays, not strings
+      if (parsedState.staffMembers) {
+        parsedState.staffMembers = parsedState.staffMembers.map((staff: Record<string, any>) => ({
+          ...staff,
+          skills: normalizeSkills(staff.skills)
+        }));
+      }
+      
+      if (parsedState.filteredStaffMembers) {
+        parsedState.filteredStaffMembers = parsedState.filteredStaffMembers.map((staff: Record<string, any>) => ({
+          ...staff,
+          skills: normalizeSkills(staff.skills)
+        }));
+      }
+      
+      return parsedState;
     }
   } catch (e) {
     console.error('Error loading state from localStorage:', e);
@@ -41,7 +109,20 @@ const loadState = (): StaffState => {
 // Helper function to save state to localStorage
 const saveState = (state: StaffState) => {
   try {
-    localStorage.setItem('staffData', JSON.stringify(state));
+    // Make sure all skills arrays are properly formatted before saving
+    const stateCopy = {
+      ...state,
+      staffMembers: state.staffMembers.map(staff => ({
+        ...staff,
+        skills: Array.isArray(staff.skills) ? staff.skills : []
+      })),
+      filteredStaffMembers: state.filteredStaffMembers.map(staff => ({
+        ...staff,
+        skills: Array.isArray(staff.skills) ? staff.skills : []
+      }))
+    };
+    
+    localStorage.setItem('staffData', JSON.stringify(stateCopy));
   } catch (e) {
     console.error('Error saving state to localStorage:', e);
   }
@@ -62,12 +143,22 @@ const staffSlice = createSlice({
       saveState(state);
     },
     setStaffMembers: (state, action: PayloadAction<StaffMember[]>) => {
-      state.staffMembers = action.payload;
-      state.filteredStaffMembers = action.payload;
+      // Ensure skills are arrays before setting
+      state.staffMembers = action.payload.map(staff => ({
+        ...staff,
+        skills: normalizeSkills(staff.skills)
+      }));
+      state.filteredStaffMembers = state.staffMembers;
       saveState(state);
     },
     addStaffMember: (state, action: PayloadAction<StaffMember>) => {
-      state.staffMembers.push(action.payload);
+      // Ensure skills is an array
+      const staffWithArraySkills = {
+        ...action.payload,
+        skills: normalizeSkills(action.payload.skills)
+      };
+      
+      state.staffMembers.push(staffWithArraySkills);
       state.filteredStaffMembers = state.staffMembers;
       saveState(state);
     },
@@ -76,7 +167,11 @@ const staffSlice = createSlice({
         (member) => member.id === action.payload.id
       );
       if (index !== -1) {
-        state.staffMembers[index] = action.payload;
+        // Ensure skills is an array
+        state.staffMembers[index] = {
+          ...action.payload,
+          skills: normalizeSkills(action.payload.skills)
+        };
       }
       state.filteredStaffMembers = state.staffMembers;
       saveState(state);

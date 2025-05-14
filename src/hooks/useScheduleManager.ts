@@ -1,0 +1,482 @@
+import { useState } from 'react';
+import { useSelector, useDispatch } from 'react-redux';
+import { v4 as uuidv4 } from 'uuid';
+import { RootState } from '../store';
+import {
+  ScheduleTask,
+  setTasks,
+  navigateWeek
+} from '../store/slices/scheduleSlice';
+import { StaffMember } from '../store/slices/staffSlice';
+import { Project } from '../store/slices/projectSlice';
+import { ContextMenuPosition, DragItem, NotificationState, StaffHours } from '../components/schedule/types';
+import { getDatesForCurrentWeek, formatDateISO } from '../utils/ScheduleUtils';
+
+export const useScheduleManager = (staffMembers: StaffMember[], projects: Project[]) => {
+  const dispatch = useDispatch();
+  const scheduleTasks = useSelector((state: RootState) => state.schedule.tasks);
+  
+  // Task assignment drawer state
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [selectedDate, setSelectedDate] = useState('');
+  const [selectedStaffId, setSelectedStaffId] = useState('');
+  const [currentTasks, setCurrentTasks] = useState<ScheduleTask[]>([]);
+  
+  // Current week state
+  const [currentStartDate, setCurrentStartDate] = useState<Date>(() => {
+    const today = new Date();
+    const day = today.getDay(); // 0 is Sunday, 1 is Monday
+    // Set to the current week's Monday
+    const diff = day === 0 ? -6 : 1 - day; // If Sunday, go back 6 days, otherwise adjust to Monday
+    const mondayDate = new Date(today);
+    mondayDate.setDate(today.getDate() + diff);
+    return mondayDate;
+  });
+  
+  // Get date array for current week
+  const weekDates = getDatesForCurrentWeek(currentStartDate);
+  
+  // Drag and drop state
+  const [dragItem, setDragItem] = useState<DragItem | null>(null);
+  const [dropTargetStaffId, setDropTargetStaffId] = useState<string | null>(null);
+  const [dropTargetDate, setDropTargetDate] = useState<string | null>(null);
+  
+  // Context menu state for right-click operations
+  const [contextMenu, setContextMenu] = useState<ContextMenuPosition | null>(null);
+  
+  // Weekly assignment dialog state
+  const [weeklyAssignDialogOpen, setWeeklyAssignDialogOpen] = useState(false);
+  const [weeklyAssignStaffId, setWeeklyAssignStaffId] = useState('');
+  
+  // Bulk assignment dialog state
+  const [bulkAssignDialogOpen, setBulkAssignDialogOpen] = useState(false);
+  
+  // Notification state
+  const [notification, setNotification] = useState<NotificationState>({
+    open: false,
+    message: '',
+    severity: 'info'
+  });
+  
+  // Handle filter changes from FilterSidebar
+  const handleFilterChange = (filteredStaff: StaffMember[]) => {
+    return filteredStaff;
+  };
+  
+  // Week navigation handlers
+  const goToPreviousWeek = () => {
+    const newStartDate = new Date(currentStartDate);
+    newStartDate.setDate(currentStartDate.getDate() - 7);
+    setCurrentStartDate(newStartDate);
+    dispatch(navigateWeek('previous'));
+  };
+  
+  const goToNextWeek = () => {
+    const newStartDate = new Date(currentStartDate);
+    newStartDate.setDate(currentStartDate.getDate() + 7);
+    setCurrentStartDate(newStartDate);
+    dispatch(navigateWeek('next'));
+  };
+  
+  // Task drawer handlers
+  const openTaskDrawer = (staffId: string, date: Date) => {
+    const dateIsoString = formatDateISO(date);
+    
+    // Get current tasks for this staff and date
+    const tasksForCell = scheduleTasks.filter(
+      task => task.staffId === staffId && task.date === dateIsoString
+    );
+    
+    setSelectedStaffId(staffId);
+    setSelectedDate(dateIsoString);
+    setCurrentTasks(tasksForCell);
+    setDrawerOpen(true);
+  };
+  
+  const closeTaskDrawer = () => {
+    setDrawerOpen(false);
+    setSelectedStaffId('');
+    setSelectedDate('');
+    setCurrentTasks([]);
+  };
+  
+  // Add a new task in the drawer
+  const addNewTask = (taskType: string, hours: number) => {
+    const newTask: ScheduleTask = {
+      id: uuidv4(),
+      staffId: selectedStaffId,
+      date: selectedDate,
+      taskType,
+      hours,
+      projectId: projects.find(p => p.name === taskType)?.id
+    };
+    
+    setCurrentTasks([...currentTasks, newTask]);
+  };
+  
+  // Save and apply tasks from the drawer
+  const saveAndApply = () => {
+    // Remove existing tasks for this staff and date from the state
+    const filteredTasks = scheduleTasks.filter(
+      task => !(task.staffId === selectedStaffId && task.date === selectedDate)
+    );
+    
+    // Add the current tasks to the state
+    const newTasks = [...filteredTasks, ...currentTasks];
+    dispatch(setTasks(newTasks));
+    
+    // Show success notification
+    setNotification({
+      open: true,
+      message: 'Tasks saved successfully!',
+      severity: 'success'
+    });
+    
+    // Close the drawer
+    closeTaskDrawer();
+  };
+  
+  // Remove a task
+  const removeTask = (taskId: string) => {
+    setCurrentTasks(currentTasks.filter(task => task.id !== taskId));
+  };
+  
+  // Drag and drop handlers
+  const handleDragStart = (staffId: string, date: string) => {
+    const tasksToCopy = scheduleTasks.filter(
+      task => task.staffId === staffId && task.date === date
+    );
+    
+    setDragItem({
+      staffId,
+      date,
+      tasks: tasksToCopy
+    });
+  };
+  
+  const handleDragOver = (e: React.DragEvent, staffId: string, date: string) => {
+    e.preventDefault();
+    setDropTargetStaffId(staffId);
+    setDropTargetDate(date);
+  };
+  
+  const handleDrop = (e: React.DragEvent, targetStaffId: string, targetDateStr: string) => {
+    e.preventDefault();
+    
+    if (!dragItem) return;
+    
+    // Don't do anything if dropping on the same cell
+    if (dragItem.staffId === targetStaffId && dragItem.date === targetDateStr) {
+      setDropTargetStaffId(null);
+      setDropTargetDate(null);
+      return;
+    }
+    
+    // Clone tasks with new IDs, target staff ID, and target date
+    const newTasks = dragItem.tasks.map(task => ({
+      ...task,
+      id: uuidv4(),
+      staffId: targetStaffId,
+      date: targetDateStr
+    }));
+    
+    // Remove existing tasks for the target date and staff
+    const filteredTasks = scheduleTasks.filter(
+      task => !(task.staffId === targetStaffId && task.date === targetDateStr)
+    );
+    
+    // Add the new tasks
+    const updatedTasks = [...filteredTasks, ...newTasks];
+    dispatch(setTasks(updatedTasks));
+    
+    // Show success notification
+    setNotification({
+      open: true,
+      message: 'Tasks copied successfully!',
+      severity: 'success'
+    });
+    
+    setDropTargetStaffId(null);
+    setDropTargetDate(null);
+  };
+  
+  const handleDragEnd = () => {
+    setDragItem(null);
+    setDropTargetStaffId(null);
+    setDropTargetDate(null);
+  };
+  
+  // Context menu handlers
+  const handleContextMenu = (
+    event: React.MouseEvent,
+    staffId: string,
+    date: string
+  ) => {
+    event.preventDefault();
+    setContextMenu({
+      mouseX: event.clientX,
+      mouseY: event.clientY,
+      staffId,
+      date
+    });
+  };
+  
+  const handleCloseContextMenu = () => {
+    setContextMenu(null);
+  };
+  
+  const handleCopyDay = () => {
+    if (!contextMenu) return;
+    
+    const { staffId, date } = contextMenu;
+    const tasksToCopy = scheduleTasks.filter(
+      task => task.staffId === staffId && task.date === date
+    );
+    
+    setDragItem({
+      staffId,
+      date,
+      tasks: tasksToCopy
+    });
+    
+    // Show notification
+    setNotification({
+      open: true,
+      message: 'Day copied! Click on another cell to paste.',
+      severity: 'info'
+    });
+    
+    handleCloseContextMenu();
+  };
+  
+  const handlePasteDay = () => {
+    if (!contextMenu || !dragItem) return;
+    
+    const { staffId, date } = contextMenu;
+    
+    // Clone tasks with new IDs, target staff ID, and target date
+    const newTasks = dragItem.tasks.map(task => ({
+      ...task,
+      id: uuidv4(),
+      staffId,
+      date
+    }));
+    
+    // Remove existing tasks for the target date and staff
+    const filteredTasks = scheduleTasks.filter(
+      task => !(task.staffId === staffId && task.date === date)
+    );
+    
+    // Add the new tasks
+    const updatedTasks = [...filteredTasks, ...newTasks];
+    dispatch(setTasks(updatedTasks));
+    
+    // Show success notification
+    setNotification({
+      open: true,
+      message: 'Tasks pasted successfully!',
+      severity: 'success'
+    });
+    
+    handleCloseContextMenu();
+  };
+  
+  const handleClearDay = () => {
+    if (!contextMenu) return;
+    
+    const { staffId, date } = contextMenu;
+    
+    // Remove all tasks for this staff and date
+    const updatedTasks = scheduleTasks.filter(
+      task => !(task.staffId === staffId && task.date === date)
+    );
+    
+    dispatch(setTasks(updatedTasks));
+    
+    // Show notification
+    setNotification({
+      open: true,
+      message: 'Day cleared successfully!',
+      severity: 'success'
+    });
+    
+    handleCloseContextMenu();
+  };
+  
+  // Weekly assignment dialog handlers
+  const handleWeeklyAssign = (staffId: string) => {
+    setWeeklyAssignStaffId(staffId);
+    setWeeklyAssignDialogOpen(true);
+  };
+  
+  const handleCloseWeeklyDialog = () => {
+    setWeeklyAssignDialogOpen(false);
+    setWeeklyAssignStaffId('');
+  };
+  
+  const applyWeeklyAssignment = (projectName: string, hours: number[]) => {
+    // Get the week dates
+    const isoDateStrings = weekDates.map(date => formatDateISO(date));
+    
+    // Remove existing assignments for this staff member for the week
+    const filteredTasks = scheduleTasks.filter(task => 
+      !(task.staffId === weeklyAssignStaffId && 
+        isoDateStrings.includes(task.date))
+    );
+    
+    // Create new tasks based on the hours allocation
+    const newTasks: ScheduleTask[] = [];
+    
+    for (let i = 0; i < isoDateStrings.length; i++) {
+      // Skip days with 0 hours
+      if (hours[i] === 0) continue;
+      
+      newTasks.push({
+        id: uuidv4(),
+        staffId: weeklyAssignStaffId,
+        date: isoDateStrings[i],
+        taskType: projectName,
+        hours: hours[i],
+        projectId: projects.find(p => p.name === projectName)?.id
+      });
+    }
+    
+    // Update the state
+    dispatch(setTasks([...filteredTasks, ...newTasks]));
+    
+    // Show notification
+    setNotification({
+      open: true,
+      message: 'Weekly assignment applied successfully!',
+      severity: 'success'
+    });
+    
+    // Close the dialog
+    handleCloseWeeklyDialog();
+  };
+  
+  // Bulk assignment dialog handlers
+  const openBulkAssignDialog = () => {
+    setBulkAssignDialogOpen(true);
+  };
+  
+  const closeBulkAssignDialog = () => {
+    setBulkAssignDialogOpen(false);
+  };
+  
+  const applyBulkAssignments = (projectName: string, startDate: Date | null, staffHours: StaffHours[]) => {
+    if (!startDate) return;
+    
+    // Remove staff with 0 hours
+    const staffToAssign = staffHours.filter(staff => staff.hours > 0);
+    
+    // Calculate the working days (Monday to Friday)
+    const workingDays: Date[] = [];
+    const currentDate = new Date(startDate);
+    
+    // Assign hours based on availability
+    const newTasks: ScheduleTask[] = [];
+    
+    for (const staff of staffToAssign) {
+      let remainingHours = staff.hours;
+      let dayIndex = 0;
+      
+      while (remainingHours > 0) {
+        // Create a new date for this assignment day
+        const assignmentDate = new Date(startDate);
+        assignmentDate.setDate(startDate.getDate() + dayIndex);
+        
+        // Skip weekends
+        const dayOfWeek = assignmentDate.getDay();
+        if (dayOfWeek === 0 || dayOfWeek === 6) {
+          dayIndex++;
+          continue;
+        }
+        
+        // Calculate hours for this day (max 8 hours per day)
+        const hoursForDay = Math.min(remainingHours, 8);
+        
+        // ISO date string
+        const dateStr = formatDateISO(assignmentDate);
+        
+        // Create task
+        newTasks.push({
+          id: uuidv4(),
+          staffId: staff.id,
+          date: dateStr,
+          taskType: projectName,
+          hours: hoursForDay,
+          projectId: projects.find(p => p.name === projectName)?.id
+        });
+        
+        // Update remaining hours and day index
+        remainingHours -= hoursForDay;
+        dayIndex++;
+      }
+    }
+    
+    // Update the state
+    dispatch(setTasks([...scheduleTasks, ...newTasks]));
+    
+    // Show notification
+    setNotification({
+      open: true,
+      message: 'Bulk assignment applied successfully!',
+      severity: 'success'
+    });
+    
+    // Close the dialog
+    closeBulkAssignDialog();
+  };
+  
+  // Handle notification close
+  const handleCloseNotification = () => {
+    setNotification({
+      ...notification,
+      open: false
+    });
+  };
+  
+  return {
+    scheduleTasks,
+    currentStartDate,
+    weekDates,
+    drawerOpen,
+    selectedDate,
+    selectedStaffId,
+    currentTasks,
+    contextMenu,
+    dragItem,
+    dropTargetStaffId,
+    dropTargetDate,
+    weeklyAssignDialogOpen,
+    weeklyAssignStaffId,
+    bulkAssignDialogOpen,
+    notification,
+    handleFilterChange,
+    goToPreviousWeek,
+    goToNextWeek,
+    openTaskDrawer,
+    closeTaskDrawer,
+    addNewTask,
+    saveAndApply,
+    removeTask,
+    handleDragStart,
+    handleDragOver,
+    handleDrop,
+    handleDragEnd,
+    handleContextMenu,
+    handleCloseContextMenu,
+    handleCopyDay,
+    handlePasteDay,
+    handleClearDay,
+    handleWeeklyAssign,
+    handleCloseWeeklyDialog,
+    applyWeeklyAssignment,
+    openBulkAssignDialog,
+    closeBulkAssignDialog,
+    applyBulkAssignments,
+    handleCloseNotification,
+    setNotification
+  };
+}; 

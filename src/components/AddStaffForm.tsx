@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Dialog,
   DialogTitle,
@@ -20,10 +20,12 @@ interface AddStaffFormProps {
   open: boolean;
   onClose: () => void;
   onAdd: (staffMember: StaffMember) => void;
+  onUpdate?: (staffMember: StaffMember) => void;
+  initialData?: StaffMember;
   customFields: string[];
 }
 
-const AddStaffForm: React.FC<AddStaffFormProps> = ({ open, onClose, onAdd, customFields }) => {
+const AddStaffForm: React.FC<AddStaffFormProps> = ({ open, onClose, onAdd, onUpdate, initialData, customFields }) => {
   const [formData, setFormData] = useState<Partial<StaffMember>>({
     name: '',
     grade: '',
@@ -34,6 +36,20 @@ const AddStaffForm: React.FC<AddStaffFormProps> = ({ open, onClose, onAdd, custo
   });
   const [currentSkill, setCurrentSkill] = useState('');
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const isEdit = Boolean(initialData);
+
+  // Initialize form for edit or add
+  useEffect(() => {
+    if (open) {
+      if (initialData) {
+        setFormData({ ...initialData });
+      } else {
+        setFormData({ name: '', grade: '', department: '', city: '', country: '', skills: [] });
+      }
+      setCurrentSkill('');
+      setErrors({});
+    }
+  }, [open, initialData]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -94,8 +110,8 @@ const AddStaffForm: React.FC<AddStaffFormProps> = ({ open, onClose, onAdd, custo
 
   const handleSubmit = () => {
     if (validateForm()) {
-      const newStaffMember: StaffMember = {
-        id: uuidv4(),
+      const staff: StaffMember = {
+        id: initialData?.id || uuidv4(),
         name: formData.name || '',
         grade: formData.grade || '',
         department: formData.department || '',
@@ -109,20 +125,17 @@ const AddStaffForm: React.FC<AddStaffFormProps> = ({ open, onClose, onAdd, custo
         }, {} as Record<string, any>)
       };
       
-      onAdd(newStaffMember);
+      if (isEdit && onUpdate) {
+        onUpdate(staff);
+      } else {
+        onAdd(staff);
+      }
       handleClose();
     }
   };
 
   const handleClose = () => {
-    setFormData({
-      name: '',
-      grade: '',
-      department: '',
-      city: '',
-      country: '',
-      skills: []
-    });
+    setFormData({ name: '', grade: '', department: '', city: '', country: '', skills: [] });
     setCurrentSkill('');
     setErrors({});
     onClose();
@@ -137,7 +150,7 @@ const AddStaffForm: React.FC<AddStaffFormProps> = ({ open, onClose, onAdd, custo
 
   return (
     <Dialog open={open} onClose={handleClose} maxWidth="md" fullWidth>
-      <DialogTitle>Add New Staff Member</DialogTitle>
+      <DialogTitle>{isEdit ? 'Edit Staff Member' : 'Add New Staff Member'}</DialogTitle>
       <DialogContent>
         <Grid container spacing={3} sx={{ mt: 0 }}>
           <Grid item xs={12} md={6}>
@@ -249,12 +262,12 @@ const AddStaffForm: React.FC<AddStaffFormProps> = ({ open, onClose, onAdd, custo
       </DialogContent>
       <DialogActions>
         <Button onClick={handleClose}>Cancel</Button>
-        <Button 
-          onClick={handleSubmit} 
-          variant="contained" 
+        <Button
+          onClick={handleSubmit}
+          variant="contained"
           color="primary"
         >
-          Add Staff Member
+          {isEdit ? 'Update Staff Member' : 'Add Staff Member'}
         </Button>
       </DialogActions>
     </Dialog>

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Dialog,
   DialogTitle,
@@ -19,11 +19,15 @@ import { v4 as uuidv4 } from 'uuid';
  * @property {() => void} onClose - Callback function when the dialog is closed
  * @property {(project: Project) => void} onAdd - Callback function when a new project is added
  * @property {string[]} customFields - Array of custom field names to include in the form
+ * @property {(project: Project) => void} onUpdate - Callback function when a project is updated
+ * @property {Project} initialData - Initial data for editing an existing project
  */
 interface AddProjectFormProps {
   open: boolean;
   onClose: () => void;
   onAdd: (project: Project) => void;
+  onUpdate?: (project: Project) => void;
+  initialData?: Project;
   customFields: string[];
 }
 
@@ -34,15 +38,25 @@ interface AddProjectFormProps {
  * project fields (name, partner, team lead, budget) and any custom fields that
  * have been defined. Includes validation and handles form state.
  */
-const AddProjectForm: React.FC<AddProjectFormProps> = ({ open, onClose, onAdd, customFields }) => {
-  // Initialize form state with empty values
-  const [formData, setFormData] = useState<Partial<Project>>({
-    name: '',
-    partnerName: '',
-    teamLead: '',
-    budget: 0,
-  });
-  
+const AddProjectForm: React.FC<AddProjectFormProps> = ({ open, onClose, onAdd, onUpdate, initialData, customFields }) => {
+  const [formData, setFormData] = useState<Partial<Project>>({ name: '', partnerName: '', teamLead: '' });
+  const [budgetInput, setBudgetInput] = useState<string>('');
+  const isEdit = Boolean(initialData);
+
+  // Initialize form for edit or add
+  useEffect(() => {
+    if (open) {
+      if (initialData) {
+        setFormData({ ...initialData });
+        setBudgetInput(initialData.budget.toString());
+      } else {
+        setFormData({ name: '', partnerName: '', teamLead: '' });
+        setBudgetInput('');
+      }
+      setErrors({});
+    }
+  }, [open, initialData]);
+
   // Track validation errors for each field
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -54,17 +68,11 @@ const AddProjectForm: React.FC<AddProjectFormProps> = ({ open, onClose, onAdd, c
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
     
-    // Convert budget to number if the field is budget
     if (name === 'budget') {
-      setFormData(prev => ({
-        ...prev,
-        [name]: value === '' ? 0 : parseFloat(value)
-      }));
+      // Update budget string state, allow empty
+      setBudgetInput(value);
     } else {
-      setFormData(prev => ({
-        ...prev,
-        [name]: value
-      }));
+      setFormData(prev => ({ ...prev, [name]: value }));
     }
     
     // Clear error for this field if it exists
@@ -97,8 +105,10 @@ const AddProjectForm: React.FC<AddProjectFormProps> = ({ open, onClose, onAdd, c
       newErrors.teamLead = 'Team lead is required';
     }
     
-    // Budget must be a positive number
-    if (formData.budget === undefined || formData.budget < 0) {
+    // Budget must be provided and be a non-negative number
+    if (budgetInput.trim() === '') {
+      newErrors.budget = 'Budget is required';
+    } else if (isNaN(parseFloat(budgetInput)) || parseFloat(budgetInput) < 0) {
       newErrors.budget = 'Budget must be a positive number';
     }
     
@@ -112,13 +122,13 @@ const AddProjectForm: React.FC<AddProjectFormProps> = ({ open, onClose, onAdd, c
    */
   const handleSubmit = () => {
     if (validateForm()) {
-      // Create a new project with a unique ID and form data
-      const newProject: Project = {
-        id: uuidv4(), // Generate unique ID
+      const finalBudget = parseFloat(budgetInput) || 0;
+      const project: Project = {
+        id: initialData?.id || uuidv4(),
         name: formData.name || '',
         partnerName: formData.partnerName || '',
         teamLead: formData.teamLead || '',
-        budget: formData.budget || 0,
+        budget: finalBudget,
         // Include any custom fields from the form
         ...customFields.reduce((acc, field) => {
           acc[field] = formData[field] || '';
@@ -126,7 +136,11 @@ const AddProjectForm: React.FC<AddProjectFormProps> = ({ open, onClose, onAdd, c
         }, {} as Record<string, any>)
       };
       
-      onAdd(newProject); // Pass new project to parent component
+      if (isEdit && onUpdate) {
+        onUpdate(project);
+      } else {
+        onAdd(project);
+      }
       handleClose(); // Close the form
     }
   };
@@ -137,19 +151,15 @@ const AddProjectForm: React.FC<AddProjectFormProps> = ({ open, onClose, onAdd, c
    */
   const handleClose = () => {
     // Reset form data to initial state
-    setFormData({
-      name: '',
-      partnerName: '',
-      teamLead: '',
-      budget: 0,
-    });
+    setFormData({ name: '', partnerName: '', teamLead: '' });
+    setBudgetInput('');
     setErrors({}); // Clear any errors
     onClose(); // Call parent onClose function
   };
 
   return (
     <Dialog open={open} onClose={handleClose} maxWidth="md" fullWidth>
-      <DialogTitle>Add New Project</DialogTitle>
+      <DialogTitle>{isEdit ? 'Edit Project' : 'Add New Project'}</DialogTitle>
       <DialogContent>
         <Grid container spacing={3} sx={{ mt: 0 }}>
           {/* Project Name field */}
@@ -204,14 +214,18 @@ const AddProjectForm: React.FC<AddProjectFormProps> = ({ open, onClose, onAdd, c
               label="Budget"
               name="budget"
               type="number"
-              value={formData.budget}
+              value={budgetInput}
               onChange={handleChange}
               error={!!errors.budget}
               helperText={errors.budget}
               margin="normal"
               required
               InputProps={{
-                startAdornment: <Box component="span" mr={0.5}>$</Box>
+                startAdornment: (
+                  <Box component="span" mr={0.5}>
+                    {process.env.REACT_APP_CURRENCY_CODE || 'AED'}
+                  </Box>
+                )
               }}
             />
           </Grid>
@@ -233,12 +247,12 @@ const AddProjectForm: React.FC<AddProjectFormProps> = ({ open, onClose, onAdd, c
       </DialogContent>
       <DialogActions>
         <Button onClick={handleClose}>Cancel</Button>
-        <Button 
-          onClick={handleSubmit} 
-          variant="contained" 
+        <Button
+          onClick={handleSubmit}
+          variant="contained"
           color="primary"
         >
-          Add Project
+          {isEdit ? 'Update Project' : 'Add Project'}
         </Button>
       </DialogActions>
     </Dialog>

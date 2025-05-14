@@ -1,183 +1,236 @@
-import React, { useState } from 'react';
-import {
-  Container,
-  Box,
-  Paper,
-  Typography,
-  List,
-  ListItem,
-  ListItemText,
-  ListItemButton,
-  Grid,
-  IconButton,
-  Tooltip
-} from '@mui/material';
+import React, { useState, useEffect } from 'react';
+import { Container, Box, Button, Dialog, DialogTitle, DialogContent, DialogActions, Typography } from '@mui/material';
+import { useSelector, useDispatch } from 'react-redux';
+import { RootState } from '../store';
 import NavigationBar from '../components/NavigationBar';
-import NavigateBeforeIcon from '@mui/icons-material/NavigateBefore';
-import NavigateNextIcon from '@mui/icons-material/NavigateNext';
-import AddIcon from '@mui/icons-material/Add';
+import DeleteIcon from '@mui/icons-material/Delete';
+
+// Import schedule components
+import FilterSidebar from '../components/schedule/FilterSidebar';
+import ScheduleCalendar from '../components/schedule/ScheduleCalendar';
+import TaskAssignmentDrawer from '../components/schedule/TaskAssignmentDrawer';
+import WeeklyAssignmentDialog from '../components/schedule/WeeklyAssignmentDialog';
+import BulkAssignmentDialog from '../components/schedule/BulkAssignmentDialog';
+import ScheduleContextMenu from '../components/schedule/ScheduleContextMenu';
+import Notification from '../components/schedule/Notification';
+
+// Import hooks and types
+import { ContextMenuPosition, NotificationState } from '../components/schedule/types';
+import { useScheduleManager } from '../hooks/useScheduleManager';
+import { getDatesForCurrentWeek, isAtEndDate as checkIsAtEndDate } from '../utils/ScheduleUtils';
+import { StaffMember } from '../store/slices/staffSlice';
+import { clearSchedule } from '../store/slices/scheduleSlice';
 
 const SchedulingPage: React.FC = () => {
-  // Mock data for staff members
-  const staffMembers = [
-    { id: 1, name: 'John Doe', department: 'Engineering' },
-    { id: 2, name: 'Jane Smith', department: 'Design' },
-    { id: 3, name: 'Robert Johnson', department: 'Marketing' },
-    { id: 4, name: 'Sarah Williams', department: 'HR' },
-    { id: 5, name: 'Michael Brown', department: 'Finance' },
-  ];
-
-  // Mock data for days of the week
-  const daysOfWeek = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
+  const dispatch = useDispatch();
   
-  // State for selected staff member
-  const [selectedStaff, setSelectedStaff] = useState<number | null>(null);
-
+  // Get data from Redux store
+  const staffMembers = useSelector((state: RootState) => state.staff.staffMembers);
+  const projects = useSelector((state: RootState) => state.projects.projects);
+  
+  // State for filtered staff members
+  const [filteredStaff, setFilteredStaff] = useState(staffMembers);
+  
+  // State for clear schedule confirmation dialog
+  const [clearDialogOpen, setClearDialogOpen] = useState(false);
+  
+  // Task management hook
+  const {
+    scheduleTasks,
+    currentStartDate,
+    weekDates,
+    drawerOpen,
+    selectedDate,
+    selectedStaffId,
+    currentTasks,
+    contextMenu,
+    dragItem,
+    dropTargetStaffId,
+    dropTargetDate,
+    weeklyAssignDialogOpen,
+    weeklyAssignStaffId,
+    bulkAssignDialogOpen,
+    notification,
+    goToPreviousWeek,
+    goToNextWeek,
+    openTaskDrawer,
+    closeTaskDrawer,
+    addNewTask,
+    saveAndApply,
+    removeTask,
+    handleDragStart,
+    handleDragOver,
+    handleDrop,
+    handleDragEnd,
+    handleContextMenu,
+    handleCloseContextMenu,
+    handleCopyDay,
+    handlePasteDay,
+    handleClearDay,
+    handleWeeklyAssign,
+    handleCloseWeeklyDialog,
+    applyWeeklyAssignment,
+    openBulkAssignDialog,
+    closeBulkAssignDialog,
+    applyBulkAssignments,
+    handleCloseNotification,
+    setNotification
+  } = useScheduleManager(staffMembers, projects);
+  
+  // Update filtered staff when filter changes
+  const handleFilterChange = (newFilteredStaff: StaffMember[]) => {
+    setFilteredStaff(newFilteredStaff);
+  };
+  
+  // Update filtered staff when all staff members change
+  useEffect(() => {
+    setFilteredStaff(staffMembers);
+  }, [staffMembers]);
+  
+  // Clear schedule handlers
+  const handleOpenClearDialog = () => {
+    setClearDialogOpen(true);
+  };
+  
+  const handleCloseClearDialog = () => {
+    setClearDialogOpen(false);
+  };
+  
+  const handleClearSchedule = () => {
+    dispatch(clearSchedule());
+    setClearDialogOpen(false);
+    
+    // Show notification using the notification system from useScheduleManager
+    handleCloseNotification(); // Close any existing notification
+    setNotification({
+      open: true,
+      message: 'Schedule data has been cleared',
+      severity: 'info'
+    });
+  };
+  
   return (
-    <Container maxWidth={false} disableGutters sx={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
+    <Container maxWidth={false} disableGutters>
       <NavigationBar title="Schedule" />
-      
-      <Box sx={{ 
-        display: 'flex', 
+      <Box sx={{
+        display: 'flex',
         height: 'calc(100vh - 64px)'
       }}>
-        {/* Left sidebar with staff list */}
-        <Box sx={{
-          width: { xs: '30%', md: '20%' },
-          minWidth: { md: '250px' },
-          borderRight: 1,
-          borderColor: 'divider',
-          overflowY: 'auto'
-        }}>
-          <Typography variant="h6" sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}>
-            Staff Members
-          </Typography>
-          
-          <List>
-            {staffMembers.map((staff) => (
-              <ListItem 
-                key={staff.id}
-                disablePadding
-                divider
-                selected={selectedStaff === staff.id}
-              >
-                <ListItemButton
-                  onClick={() => setSelectedStaff(staff.id)}
-                >
-                  <ListItemText 
-                    primary={staff.name} 
-                    secondary={staff.department}
-                  />
-                </ListItemButton>
-              </ListItem>
-            ))}
-          </List>
-        </Box>
+        {/* Filter Sidebar */}
+        <FilterSidebar 
+          staffMembers={staffMembers}
+          onFilterChange={handleFilterChange}
+          onWeeklyAssign={handleWeeklyAssign}
+        />
         
-        {/* Calendar view */}
-        <Box sx={{ 
-          flexGrow: 1, 
-          p: 2,
-          overflowY: 'auto'
-        }}>
+        {/* Calendar View */}
+        <Box sx={{ display: 'flex', flexDirection: 'column', width: '100%' }}>
           <Box sx={{ 
             display: 'flex', 
-            justifyContent: 'space-between', 
-            alignItems: 'center',
-            mb: 3
+            justifyContent: 'flex-end', 
+            p: 1, 
+            borderBottom: '1px solid rgba(0, 0, 0, 0.12)' 
           }}>
-            <Typography variant="h2">Week of May 13, 2025</Typography>
-            <Box>
-              <IconButton color="primary">
-                <NavigateBeforeIcon />
-              </IconButton>
-              <IconButton color="primary">
-                <NavigateNextIcon />
-              </IconButton>
-            </Box>
+            <Button 
+              variant="outlined" 
+              color="error" 
+              startIcon={<DeleteIcon />}
+              onClick={handleOpenClearDialog}
+              size="small"
+              sx={{ mr: 2 }}
+            >
+              Clear Schedule
+            </Button>
           </Box>
           
-          <Paper sx={{ mb: 3 }}>
-            {/* Calendar header */}
-            <Grid container>
-              <Grid item xs={3} sx={{ p: 1, borderRight: 1, borderBottom: 1, borderColor: 'divider' }}>
-                <Typography variant="subtitle1" fontWeight="bold">Staff</Typography>
-              </Grid>
-              {daysOfWeek.map((day, index) => (
-                <Grid key={index} item xs={1.8} sx={{ p: 1, textAlign: 'center', borderRight: index < 4 ? 1 : 0, borderBottom: 1, borderColor: 'divider' }}>
-                  <Typography variant="subtitle1" fontWeight="bold">{day}</Typography>
-                </Grid>
-              ))}
-            </Grid>
-            
-            {/* Calendar body */}
-            {staffMembers.map((staff) => (
-              <Grid container key={staff.id}>
-                <Grid item xs={3} sx={{ p: 1, borderRight: 1, borderBottom: 1, borderColor: 'divider' }}>
-                  <Typography variant="body1">{staff.name}</Typography>
-                </Grid>
-                {daysOfWeek.map((day, index) => (
-                  <Grid 
-                    key={index} 
-                    item 
-                    xs={1.8} 
-                    sx={{ 
-                      p: 1, 
-                      textAlign: 'center', 
-                      borderRight: index < 4 ? 1 : 0, 
-                      borderBottom: 1, 
-                      borderColor: 'divider',
-                      height: '80px',
-                      backgroundColor: '#FFFDE7', // Lightest yellow for 0-2 hours booked
-                      position: 'relative'
-                    }}
-                  >
-                    <Tooltip title="Add task assignment">
-                      <IconButton 
-                        size="small" 
-                        sx={{ 
-                          position: 'absolute', 
-                          top: 4, 
-                          right: 4,
-                          backgroundColor: 'rgba(255,255,255,0.7)'
-                        }}
-                      >
-                        <AddIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
-                  </Grid>
-                ))}
-              </Grid>
-            ))}
-          </Paper>
-          
-          <Typography variant="body2" color="textSecondary">
-            Color Legend:
-          </Typography>
-          <Box sx={{ display: 'flex', mt: 1 }}>
-            <Box sx={{ mr: 2, display: 'flex', alignItems: 'center' }}>
-              <Box sx={{ width: 16, height: 16, backgroundColor: '#FFFDE7', mr: 1 }}></Box>
-              <Typography variant="body2">0-2 hours</Typography>
-            </Box>
-            <Box sx={{ mr: 2, display: 'flex', alignItems: 'center' }}>
-              <Box sx={{ width: 16, height: 16, backgroundColor: '#FFF9C4', mr: 1 }}></Box>
-              <Typography variant="body2">2-4 hours</Typography>
-            </Box>
-            <Box sx={{ mr: 2, display: 'flex', alignItems: 'center' }}>
-              <Box sx={{ width: 16, height: 16, backgroundColor: '#FFF59D', mr: 1 }}></Box>
-              <Typography variant="body2">4-6 hours</Typography>
-            </Box>
-            <Box sx={{ mr: 2, display: 'flex', alignItems: 'center' }}>
-              <Box sx={{ width: 16, height: 16, backgroundColor: '#FFE082', mr: 1 }}></Box>
-              <Typography variant="body2">6-7 hours</Typography>
-            </Box>
-            <Box sx={{ mr: 2, display: 'flex', alignItems: 'center' }}>
-              <Box sx={{ width: 16, height: 16, backgroundColor: '#FFA000', mr: 1 }}></Box>
-              <Typography variant="body2">8 hours</Typography>
-            </Box>
-          </Box>
+          <ScheduleCalendar 
+            filteredStaff={filteredStaff}
+            tasks={scheduleTasks}
+            currentStartDate={currentStartDate}
+            weekDates={weekDates}
+            onCellClick={openTaskDrawer}
+            onPreviousWeek={goToPreviousWeek}
+            onNextWeek={goToNextWeek}
+            isAtEndDate={checkIsAtEndDate(currentStartDate)}
+            dropTargetStaffId={dropTargetStaffId}
+            dropTargetDate={dropTargetDate}
+            onDragStart={handleDragStart}
+            onDragOver={handleDragOver}
+            onDrop={handleDrop}
+            onDragEnd={handleDragEnd}
+            onContextMenu={handleContextMenu}
+            onBulkAssign={openBulkAssignDialog}
+          />
         </Box>
       </Box>
+      
+      {/* Task Assignment Drawer */}
+      <TaskAssignmentDrawer 
+        open={drawerOpen}
+        onClose={closeTaskDrawer}
+        selectedDate={selectedDate}
+        selectedStaffId={selectedStaffId}
+        staffMembers={staffMembers}
+        projects={projects}
+        currentTasks={currentTasks}
+        onAddTask={addNewTask}
+        onRemoveTask={removeTask}
+        onSaveAndApply={saveAndApply}
+      />
+      
+      {/* Context Menu */}
+      <ScheduleContextMenu 
+        contextMenu={contextMenu}
+        onClose={handleCloseContextMenu}
+        onCopyDay={handleCopyDay}
+        onPasteDay={handlePasteDay}
+        onClearDay={handleClearDay}
+        canPaste={!!dragItem}
+      />
+      
+      {/* Weekly Assignment Dialog */}
+      <WeeklyAssignmentDialog 
+        open={weeklyAssignDialogOpen}
+        onClose={handleCloseWeeklyDialog}
+        staffId={weeklyAssignStaffId}
+        staffMembers={staffMembers}
+        projects={projects}
+        weekDates={weekDates}
+        onApply={applyWeeklyAssignment}
+      />
+      
+      {/* Bulk Assignment Dialog */}
+      <BulkAssignmentDialog 
+        open={bulkAssignDialogOpen}
+        onClose={closeBulkAssignDialog}
+        staffMembers={staffMembers}
+        projects={projects}
+        onApply={applyBulkAssignments}
+      />
+      
+      {/* Notifications */}
+      <Notification 
+        open={notification.open}
+        message={notification.message}
+        severity={notification.severity}
+        onClose={handleCloseNotification}
+      />
+      
+      {/* Clear Schedule Confirmation Dialog */}
+      <Dialog open={clearDialogOpen} onClose={handleCloseClearDialog}>
+        <DialogTitle>Clear Schedule</DialogTitle>
+        <DialogContent>
+          <Typography>
+            Are you sure you want to clear all schedule data? This action cannot be undone.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseClearDialog}>Cancel</Button>
+          <Button onClick={handleClearSchedule} color="error" variant="contained">
+            Clear All Data
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Container>
   );
 };

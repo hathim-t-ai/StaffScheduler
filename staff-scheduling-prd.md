@@ -102,7 +102,8 @@ The platform allows users to upload data from external sources (Excel, CSV, Goog
   - Name
   - Grade
   - Department
-  - Location
+  - City
+  - Country
   - Skills
 - Enable column customization through an "Add" or "+" button to allow additional fields
 - Provide a form interface for manual entry of staff details
@@ -139,7 +140,6 @@ The platform allows users to upload data from external sources (Excel, CSV, Goog
 #### Calendar Interface
 - Display a calendar view starting from the current week
 - Provide week navigation controls (previous/next week)
-- List staff members in the left pane for selection
 - Support multi-select functionality for staff members
 - Enable filtering of staff list by department, location, or skills
 

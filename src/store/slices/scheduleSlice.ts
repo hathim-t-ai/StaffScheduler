@@ -17,12 +17,34 @@ interface ScheduleState {
   startDate: string; // Current week's start date
 }
 
+// Load schedule data from localStorage
+const loadScheduleData = (): Pick<ScheduleState, 'tasks' | 'startDate'> => {
+  try {
+    const storedTasks = localStorage.getItem('scheduleTasks');
+    const storedStartDate = localStorage.getItem('scheduleStartDate');
+    
+    return {
+      tasks: storedTasks ? JSON.parse(storedTasks) : [],
+      startDate: storedStartDate || new Date().toISOString().split('T')[0]
+    };
+  } catch (error) {
+    console.error('Error loading schedule data from localStorage', error);
+    return {
+      tasks: [],
+      startDate: new Date().toISOString().split('T')[0]
+    };
+  }
+};
+
+// Load saved data
+const savedData = loadScheduleData();
+
 const initialState: ScheduleState = {
-  tasks: [],
-  filteredTasks: [],
+  tasks: savedData.tasks,
+  filteredTasks: savedData.tasks,
   loading: false,
   error: null,
-  startDate: new Date().toISOString().split('T')[0], // Today's date as ISO string
+  startDate: savedData.startDate,
 };
 
 const scheduleSlice = createSlice({
@@ -38,10 +60,16 @@ const scheduleSlice = createSlice({
     setTasks: (state, action: PayloadAction<ScheduleTask[]>) => {
       state.tasks = action.payload;
       state.filteredTasks = action.payload;
+      
+      // Save to localStorage
+      localStorage.setItem('scheduleTasks', JSON.stringify(action.payload));
     },
     addTask: (state, action: PayloadAction<ScheduleTask>) => {
       state.tasks.push(action.payload);
       state.filteredTasks = state.tasks;
+      
+      // Save to localStorage
+      localStorage.setItem('scheduleTasks', JSON.stringify(state.tasks));
     },
     updateTask: (state, action: PayloadAction<ScheduleTask>) => {
       const index = state.tasks.findIndex(
@@ -51,12 +79,18 @@ const scheduleSlice = createSlice({
         state.tasks[index] = action.payload;
       }
       state.filteredTasks = state.tasks;
+      
+      // Save to localStorage
+      localStorage.setItem('scheduleTasks', JSON.stringify(state.tasks));
     },
     deleteTask: (state, action: PayloadAction<string>) => {
       state.tasks = state.tasks.filter(
         (task) => task.id !== action.payload
       );
       state.filteredTasks = state.tasks;
+      
+      // Save to localStorage
+      localStorage.setItem('scheduleTasks', JSON.stringify(state.tasks));
     },
     filterTasksByStaff: (state, action: PayloadAction<string[]>) => {
       const staffIds = action.payload;
@@ -72,6 +106,9 @@ const scheduleSlice = createSlice({
     },
     setStartDate: (state, action: PayloadAction<string>) => {
       state.startDate = action.payload;
+      
+      // Save to localStorage
+      localStorage.setItem('scheduleStartDate', action.payload);
     },
     navigateWeek: (state, action: PayloadAction<'previous' | 'next'>) => {
       const currentDate = new Date(state.startDate);
@@ -81,7 +118,18 @@ const scheduleSlice = createSlice({
       const newDate = new Date(currentDate);
       newDate.setDate(currentDate.getDate() + daysToAdjust);
       
-      state.startDate = newDate.toISOString().split('T')[0];
+      const newStartDate = newDate.toISOString().split('T')[0];
+      state.startDate = newStartDate;
+      
+      // Save to localStorage
+      localStorage.setItem('scheduleStartDate', newStartDate);
+    },
+    clearSchedule: (state) => {
+      state.tasks = [];
+      state.filteredTasks = [];
+      
+      // Clear from localStorage
+      localStorage.removeItem('scheduleTasks');
     },
   },
 });
@@ -97,6 +145,7 @@ export const {
   filterTasksByDateRange,
   setStartDate,
   navigateWeek,
+  clearSchedule,
 } = scheduleSlice.actions;
 
 export default scheduleSlice.reducer; 
