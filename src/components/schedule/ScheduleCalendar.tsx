@@ -10,6 +10,7 @@ import {
 import NavigateBeforeIcon from '@mui/icons-material/NavigateBefore';
 import NavigateNextIcon from '@mui/icons-material/NavigateNext';
 import PeopleIcon from '@mui/icons-material/People';
+import CalendarTodayIcon from '@mui/icons-material/CalendarToday';
 import { StaffMember } from '../../store/slices/staffSlice';
 import { ScheduleTask } from '../../store/slices/scheduleSlice';
 import CalendarCell from './CalendarCell';
@@ -32,6 +33,7 @@ interface ScheduleCalendarProps {
   onDragEnd: () => void;
   onContextMenu: (e: React.MouseEvent, staffId: string, date: string) => void;
   onBulkAssign: () => void;
+  onWeeklyAssign: (staffId: string) => void;
 }
 
 const ScheduleCalendar: React.FC<ScheduleCalendarProps> = ({
@@ -50,7 +52,8 @@ const ScheduleCalendar: React.FC<ScheduleCalendarProps> = ({
   onDrop,
   onDragEnd,
   onContextMenu,
-  onBulkAssign
+  onBulkAssign,
+  onWeeklyAssign
 }) => {
   // Format date labels for display
   const dateLabels = weekDates.map(date => formatDate(date));
@@ -99,11 +102,11 @@ const ScheduleCalendar: React.FC<ScheduleCalendarProps> = ({
       <Paper sx={{ mb: 3 }}>
         {/* Calendar header */}
         <Grid container>
-          <Grid item xs={3} sx={{ p: 1, borderRight: 1, borderBottom: 1, borderColor: 'divider' }}>
+          <Grid item xs={2.5} sx={{ p: 1, borderRight: 1, borderBottom: 1, borderColor: 'divider' }}>
             <Typography variant="subtitle1" fontWeight="bold">Staff</Typography>
           </Grid>
           {dateLabels.map((day, index) => (
-            <Grid key={index} item xs={1.8} sx={{ p: 1, textAlign: 'center', borderRight: index < 4 ? 1 : 0, borderBottom: 1, borderColor: 'divider' }}>
+            <Grid key={index} item xs={1.9} sx={{ p: 1, textAlign: 'center', borderRight: index < 4 ? 1 : 0, borderBottom: 1, borderColor: 'divider' }}>
               <Typography variant="subtitle2" fontWeight="bold">{weekDates[index].toLocaleDateString('en-US', { weekday: 'short' })}</Typography>
               <Typography variant="caption">{day}</Typography>
             </Grid>
@@ -113,9 +116,15 @@ const ScheduleCalendar: React.FC<ScheduleCalendarProps> = ({
         {/* Calendar body */}
         {filteredStaff.map((staff) => (
           <Grid container key={staff.id}>
-            <Grid item xs={3} sx={{ p: 1, borderRight: 1, borderBottom: 1, borderColor: 'divider' }}>
-              <Typography variant="body2">{staff.name}</Typography>
-              <Typography variant="caption" color="textSecondary">{staff.department}</Typography>
+            <Grid item xs={2.5} sx={{ p: 1, borderRight: 1, borderBottom: 1, borderColor: 'divider' }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <Typography variant="body2">{staff.name}</Typography>
+                <IconButton size="small" onClick={() => onWeeklyAssign(staff.id)} title="Assign weekly schedule">
+                  <CalendarTodayIcon fontSize="small" />
+                </IconButton>
+              </Box>
+              <Typography variant="caption" component="div" color="textSecondary">{staff.grade}</Typography>
+              <Typography variant="caption" component="div" color="textSecondary">{staff.department}</Typography>
             </Grid>
             {isoDateStrings.map((date, index) => (
               <CalendarCell

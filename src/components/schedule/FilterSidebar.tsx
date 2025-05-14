@@ -17,15 +17,21 @@ import {
 import ClearIcon from '@mui/icons-material/Clear';
 import CalendarTodayIcon from '@mui/icons-material/CalendarToday';
 import { StaffMember } from '../../store/slices/staffSlice';
+import { ScheduleTask } from '../../store/slices/scheduleSlice';
+import { Project } from '../../store/slices/projectSlice';
 
 interface FilterSidebarProps {
   staffMembers: StaffMember[];
+  scheduleTasks: ScheduleTask[];
+  projects: Project[];
   onFilterChange: (filteredStaff: StaffMember[]) => void;
   onWeeklyAssign: (staffId: string) => void;
 }
 
 const FilterSidebar: React.FC<FilterSidebarProps> = ({
   staffMembers,
+  scheduleTasks,
+  projects,
   onFilterChange,
   onWeeklyAssign
 }) => {
@@ -34,6 +40,9 @@ const FilterSidebar: React.FC<FilterSidebarProps> = ({
   const [cityFilter, setCityFilter] = useState<string>('');
   const [countryFilter, setCountryFilter] = useState<string>('');
   const [skillsFilter, setSkillsFilter] = useState<string[]>([]);
+  const [projectFilter, setProjectFilter] = useState<string>('');
+  const [teamLeadFilter, setTeamLeadFilter] = useState<string>('');
+  const [partnerFilter, setPartnerFilter] = useState<string>('');
   
   // Get all unique departments, cities, countries, and skills from staff data
   const uniqueDepartments = Array.from(new Set(staffMembers.map(staff => staff.department)));
@@ -42,6 +51,9 @@ const FilterSidebar: React.FC<FilterSidebarProps> = ({
   const uniqueSkills = Array.from(
     new Set(staffMembers.flatMap(staff => staff.skills || []))
   );
+  // Unique project, team lead, and partner options
+  const uniqueTeamLeads = Array.from(new Set(projects.map(proj => proj.teamLead)));
+  const uniquePartners = Array.from(new Set(projects.map(proj => proj.partnerName)));
 
   // Apply filters to staff members
   useEffect(() => {
@@ -64,9 +76,48 @@ const FilterSidebar: React.FC<FilterSidebarProps> = ({
         skillsFilter.every(skill => staff.skills && staff.skills.includes(skill))
       );
     }
+    // Project filter: only staff with assignments on selected project
+    if (projectFilter) {
+      const staffIds = scheduleTasks
+        .filter(task => task.projectId === projectFilter)
+        .map(task => task.staffId);
+      result = result.filter(staff => staffIds.includes(staff.id));
+    }
+    // Team Lead filter: staff assigned to projects led by selected team lead
+    if (teamLeadFilter) {
+      const projIds = projects
+        .filter(p => p.teamLead === teamLeadFilter)
+        .map(p => p.id);
+      const staffIds = scheduleTasks
+        .filter(task => task.projectId && projIds.includes(task.projectId as string))
+        .map(task => task.staffId);
+      result = result.filter(staff => staffIds.includes(staff.id));
+    }
+    // Partner filter: staff assigned to projects for selected partner
+    if (partnerFilter) {
+      const projIds = projects
+        .filter(p => p.partnerName === partnerFilter)
+        .map(p => p.id);
+      const staffIds = scheduleTasks
+        .filter(task => task.projectId && projIds.includes(task.projectId as string))
+        .map(task => task.staffId);
+      result = result.filter(staff => staffIds.includes(staff.id));
+    }
     
     onFilterChange(result);
-  }, [staffMembers, departmentFilter, cityFilter, countryFilter, skillsFilter, onFilterChange]);
+  }, [
+    staffMembers,
+    departmentFilter,
+    cityFilter,
+    countryFilter,
+    skillsFilter,
+    projectFilter,
+    teamLeadFilter,
+    partnerFilter,
+    scheduleTasks,
+    projects,
+    onFilterChange
+  ]);
 
   // Clear all filters
   const clearFilters = () => {
@@ -74,6 +125,9 @@ const FilterSidebar: React.FC<FilterSidebarProps> = ({
     setCityFilter('');
     setCountryFilter('');
     setSkillsFilter([]);
+    setProjectFilter('');
+    setTeamLeadFilter('');
+    setPartnerFilter('');
   };
 
   return (
@@ -207,44 +261,73 @@ const FilterSidebar: React.FC<FilterSidebarProps> = ({
             ))}
           </Select>
         </FormControl>
-      </Box>
-      
-      {/* Staff list */}
-      <Typography variant="subtitle1" sx={{ px: 2, pt: 2, pb: 1 }}>
-        Staff Members
-      </Typography>
-      <List dense sx={{ overflowY: 'auto' }}>
-        {staffMembers.filter(staff => {
-          // Apply filters for the displayed list
-          if (departmentFilter && staff.department !== departmentFilter) return false;
-          if (cityFilter && staff.city !== cityFilter) return false;
-          if (countryFilter && staff.country !== countryFilter) return false;
-          if (skillsFilter.length > 0 && (!staff.skills || !skillsFilter.every(skill => staff.skills?.includes(skill)))) return false;
-          return true;
-        }).map((staff) => (
-          <ListItem 
-            key={staff.id}
-            divider
-            secondaryAction={
-              <IconButton 
-                edge="end" 
-                size="small" 
-                onClick={() => onWeeklyAssign(staff.id)}
-                title="Assign weekly schedule"
-              >
-                <CalendarTodayIcon fontSize="small" />
-              </IconButton>
+        {/* Project Filter */}
+        <FormControl fullWidth size="small" sx={{ mb: 1 }}>
+          <InputLabel id="project-filter-label">Project</InputLabel>
+          <Select
+            labelId="project-filter-label"
+            value={projectFilter}
+            onChange={(e) => setProjectFilter(e.target.value as string)}
+            label="Project"
+            endAdornment={
+              projectFilter && (
+                <IconButton size="small" onClick={() => setProjectFilter('')} sx={{ mr: 2 }}>
+                  <ClearIcon fontSize="small" />
+                </IconButton>
+              )
             }
           >
-            <ListItemText 
-              primary={staff.name} 
-              secondary={staff.department}
-              primaryTypographyProps={{ variant: 'body2' }}
-              secondaryTypographyProps={{ variant: 'caption' }}
-            />
-          </ListItem>
-        ))}
-      </List>
+            <MenuItem value="">All Projects</MenuItem>
+            {projects.map((proj) => (
+              <MenuItem key={proj.id} value={proj.id}>{proj.name}</MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+        {/* Team Lead Filter */}
+        <FormControl fullWidth size="small" sx={{ mb: 1 }}>
+          <InputLabel id="teamlead-filter-label">Team Lead</InputLabel>
+          <Select
+            labelId="teamlead-filter-label"
+            value={teamLeadFilter}
+            onChange={(e) => setTeamLeadFilter(e.target.value as string)}
+            label="Team Lead"
+            endAdornment={
+              teamLeadFilter && (
+                <IconButton size="small" onClick={() => setTeamLeadFilter('')} sx={{ mr: 2 }}>
+                  <ClearIcon fontSize="small" />
+                </IconButton>
+              )
+            }
+          >
+            <MenuItem value="">All Team Leads</MenuItem>
+            {uniqueTeamLeads.map((tl) => (
+              <MenuItem key={tl} value={tl}>{tl}</MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+        {/* Partner Filter */}
+        <FormControl fullWidth size="small" sx={{ mb: 1 }}>
+          <InputLabel id="partner-filter-label">Partner</InputLabel>
+          <Select
+            labelId="partner-filter-label"
+            value={partnerFilter}
+            onChange={(e) => setPartnerFilter(e.target.value as string)}
+            label="Partner"
+            endAdornment={
+              partnerFilter && (
+                <IconButton size="small" onClick={() => setPartnerFilter('')} sx={{ mr: 2 }}>
+                  <ClearIcon fontSize="small" />
+                </IconButton>
+              )
+            }
+          >
+            <MenuItem value="">All Partners</MenuItem>
+            {uniquePartners.map((pr) => (
+              <MenuItem key={pr} value={pr}>{pr}</MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+      </Box>
     </Box>
   );
 };

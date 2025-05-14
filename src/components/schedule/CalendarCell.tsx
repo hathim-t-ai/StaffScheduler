@@ -47,7 +47,7 @@ const CalendarCell: React.FC<CalendarCellProps> = ({
   return (
     <Grid 
       item 
-      xs={1.8}
+      xs={1.9}
       sx={{ 
         height: '100px', 
         p: 1, 

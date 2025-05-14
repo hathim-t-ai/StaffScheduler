@@ -119,6 +119,8 @@ const SchedulingPage: React.FC = () => {
         {/* Filter Sidebar */}
         <FilterSidebar 
           staffMembers={staffMembers}
+          scheduleTasks={scheduleTasks}
+          projects={projects}
           onFilterChange={handleFilterChange}
           onWeeklyAssign={handleWeeklyAssign}
         />
@@ -160,6 +162,7 @@ const SchedulingPage: React.FC = () => {
             onDragEnd={handleDragEnd}
             onContextMenu={handleContextMenu}
             onBulkAssign={openBulkAssignDialog}
+            onWeeklyAssign={handleWeeklyAssign}
           />
         </Box>
       </Box>
