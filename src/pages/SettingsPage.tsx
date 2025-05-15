@@ -18,6 +18,9 @@ import {
   SelectChangeEvent
 } from '@mui/material';
 import NavigationBar from '../components/NavigationBar';
+import { useSelector, useDispatch } from 'react-redux';
+import { RootState } from '../store';
+import { updateGlobalRules } from '../store/slices/settingsSlice';
 
 // TabPanel component for tab content
 interface TabPanelProps {
@@ -47,6 +50,8 @@ const TabPanel = (props: TabPanelProps) => {
 };
 
 const SettingsPage: React.FC = () => {
+  const dispatch = useDispatch();
+  const gradeRates = useSelector((state: RootState) => state.settings.globalRules.gradeRates);
   const [tabValue, setTabValue] = useState(0);
   
   // Mock state for global settings
@@ -141,6 +146,23 @@ const SettingsPage: React.FC = () => {
               <Button variant="outlined" color="primary">
                 Add Holiday
               </Button>
+            </Box>
+            
+            {/* Grade Rates Section */}
+            <Typography variant="h6" gutterBottom sx={{ mt: 4 }}>
+              Grade Rates (AED per hour)
+            </Typography>
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mb: 3 }}>
+              {Object.entries(gradeRates).map(([grade, rate]) => (
+                <TextField
+                  key={grade}
+                  label={grade}
+                  type="number"
+                  value={rate}
+                  onChange={(e) => dispatch(updateGlobalRules({ gradeRates: { ...gradeRates, [grade]: Number(e.target.value) } }))}
+                  sx={{ width: '200px' }}
+                />
+              ))}
             </Box>
             
             <Divider sx={{ my: 4 }} />

@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import { useSelector } from 'react-redux';
+import { RootState } from '../../store';
 import {
   Box,
   Drawer,
@@ -47,8 +49,37 @@ const TaskAssignmentDrawer: React.FC<TaskAssignmentDrawerProps> = ({
   onRemoveTask,
   onSaveAndApply
 }) => {
+  // Get global schedule tasks and grade rates from Redux
+  const scheduleTasks = useSelector((state: RootState) => state.schedule.tasks);
+  const gradeRates = useSelector((state: RootState) => state.settings.globalRules.gradeRates);
+
   const [taskType, setTaskType] = useState<string>('Available');
   const [taskHours, setTaskHours] = useState<number>(8);
+  
+  // Calculate budget usage for selected project
+  const selectedProject = projects.find(p => p.name === taskType);
+  // Find staff member and their rate
+  const staff = staffMembers.find(s => s.id === selectedStaffId);
+  const staffRate = staff ? gradeRates[staff.grade] || 0 : 0;
+  // Sum existing and draft tasks cost for this project
+  let budgetUsed = 0;
+  if (selectedProject) {
+    const existing = scheduleTasks.filter(task => task.projectId === selectedProject.id);
+    const drafts = currentTasks.filter(task => task.projectId === selectedProject.id && !existing.some(t => t.id === task.id));
+    budgetUsed = existing.reduce((sum, t) => {
+      const st = staffMembers.find(s => s.id === t.staffId);
+      const rate = st ? gradeRates[st.grade] || 0 : 0;
+      return sum + t.hours * rate;
+    }, 0) + drafts.reduce((sum, t) => {
+      const st = staffMembers.find(s => s.id === t.staffId);
+      const rate = st ? gradeRates[st.grade] || 0 : 0;
+      return sum + t.hours * rate;
+    }, 0);
+  }
+  const budgetLeft = selectedProject ? selectedProject.budget - budgetUsed : 0;
+  const isProjectTask = Boolean(selectedProject);
+  const newTaskCost = staffRate * taskHours;
+  const canAdd = !isProjectTask || newTaskCost <= budgetLeft;
   
   // Reset form when drawer opens
   useEffect(() => {
@@ -129,6 +160,17 @@ const TaskAssignmentDrawer: React.FC<TaskAssignmentDrawerProps> = ({
       {/* Add new task form */}
       <Typography variant="subtitle2" sx={{ mb: 2 }}>Add New Task:</Typography>
       
+      {/* Budget Indicator */}
+      {isProjectTask && (
+        <Typography
+          variant="body2"
+          color={budgetLeft < 0 ? 'error' : 'textSecondary'}
+          sx={{ mb: 2 }}
+        >
+          Budget Used: {budgetUsed} AED / {selectedProject?.budget} AED. Remaining: {budgetLeft} AED.
+        </Typography>
+      )}
+      
       <FormControl fullWidth sx={{ mb: 2 }}>
         <InputLabel id="task-type-label">Task Type</InputLabel>
         <Select
@@ -164,17 +206,19 @@ const TaskAssignmentDrawer: React.FC<TaskAssignmentDrawerProps> = ({
       
       <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
         <Button 
-          variant="outlined" 
+          variant="outlined"
           onClick={handleAddTask}
+          disabled={!canAdd}
           startIcon={<AddIcon />}
         >
           Add Task
         </Button>
         
         <Button 
-          variant="contained" 
+          variant="contained"
           onClick={onSaveAndApply}
           color="primary"
+          disabled={isProjectTask && budgetLeft < 0}
         >
           Save and Apply
         </Button>

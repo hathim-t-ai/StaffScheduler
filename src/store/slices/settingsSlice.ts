@@ -5,6 +5,7 @@ export interface GlobalRules {
   mandatoryDaysOff: string[]; // Array of dates in ISO format
   defaultWorkingHours: number;
   requireApprovalForLeave: boolean;
+  gradeRates: Record<string, number>; // Rates per grade
 }
 
 export interface ProjectRule {
@@ -37,6 +38,13 @@ const initialState: SettingsState = {
     mandatoryDaysOff: [],
     defaultWorkingHours: 8,
     requireApprovalForLeave: false,
+    gradeRates: {
+      Associate: 100,
+      'Senior Associate': 150,
+      Manager: 200,
+      Director: 300,
+      Partner: 400,
+    },
   },
   projectRules: [],
   systemPreferences: {

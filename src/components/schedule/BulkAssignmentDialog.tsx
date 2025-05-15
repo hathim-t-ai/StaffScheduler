@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import { useSelector } from 'react-redux';
+import { RootState } from '../../store';
 import {
   Dialog,
   DialogTitle,
@@ -43,6 +45,9 @@ const BulkAssignmentDialog: React.FC<BulkAssignmentDialogProps> = ({
   projects,
   onApply
 }) => {
+  // Get existing tasks and grade rates from Redux
+  const existingTasks = useSelector((state: RootState) => state.schedule.tasks);
+  const gradeRates = useSelector((state: RootState) => state.settings.globalRules.gradeRates);
   const [tabIndex, setTabIndex] = useState(0);
   const [projectName, setProjectName] = useState<string>('');
   const [startDate, setStartDate] = useState<Date | null>(new Date());
@@ -70,6 +75,27 @@ const BulkAssignmentDialog: React.FC<BulkAssignmentDialogProps> = ({
       setTabIndex(0);
     }
   }, [open, staffMembers]);
+  
+  // Calculate budget metrics
+  const project = projects.find(p => p.name === projectName);
+  const existingBudgetUsed = project
+    ? existingTasks
+        .filter(task => task.projectId === project.id)
+        .reduce((sum, t) => {
+          const st = staffMembers.find(s => s.id === t.staffId);
+          const rate = st ? gradeRates[st.grade] || 0 : 0;
+          return sum + t.hours * rate;
+        }, 0)
+    : 0;
+  const draftBudget = projectName
+    ? staffHours.reduce((sum, sh) => {
+        const st = staffMembers.find(s => s.id === sh.id);
+        const rate = st ? gradeRates[st.grade] || 0 : 0;
+        return sum + sh.hours * rate;
+      }, 0)
+    : 0;
+  const budgetLeftAfterDraft = project ? project.budget - existingBudgetUsed - draftBudget : 0;
+  const canApply = Boolean(projectName && startDate && budgetLeftAfterDraft >= 0);
   
   const handleStaffHoursChange = (staffId: string, hours: number) => {
     setStaffHours(prevHours => 
@@ -181,6 +207,18 @@ const BulkAssignmentDialog: React.FC<BulkAssignmentDialogProps> = ({
                 </ListItem>
               ))}
             </List>
+            {/* Budget Indicator */}
+            {project && (
+              <Typography
+                variant="body2"
+                color={budgetLeftAfterDraft < 0 ? 'error' : 'textSecondary'}
+                sx={{ mt: 2 }}
+              >
+                Budget Used: {existingBudgetUsed} AED / {project.budget} AED. 
+                New Assignment Cost: {draftBudget} AED. 
+                Remaining After Assignment: {budgetLeftAfterDraft} AED.
+              </Typography>
+            )}
           </>
         )}
       </DialogContent>
@@ -190,7 +228,7 @@ const BulkAssignmentDialog: React.FC<BulkAssignmentDialogProps> = ({
           onClick={handleApply} 
           variant="contained"
           color="primary"
-          disabled={!projectName || !startDate}
+          disabled={!canApply}
         >
           Apply
         </Button>
