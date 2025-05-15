@@ -231,7 +231,7 @@ const FilterSidebar: React.FC<FilterSidebarProps> = ({
         </FormControl>
         
         {/* Skills Filter */}
-        <FormControl fullWidth size="small">
+        <FormControl fullWidth size="small" sx={{ mb: 1 }}>
           <InputLabel id="skills-filter-label">Skills</InputLabel>
           <Select
             labelId="skills-filter-label"
