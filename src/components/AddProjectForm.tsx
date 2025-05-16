@@ -158,9 +158,15 @@ const AddProjectForm: React.FC<AddProjectFormProps> = ({ open, onClose, onAdd, o
   };
 
   return (
-    <Dialog open={open} onClose={handleClose} maxWidth="md" fullWidth>
-      <DialogTitle>{isEdit ? 'Edit Project' : 'Add New Project'}</DialogTitle>
-      <DialogContent>
+    <Dialog
+      open={open}
+      onClose={handleClose}
+      maxWidth="md"
+      fullWidth
+      PaperProps={{ sx: { bgcolor: 'common.white', color: 'background.default' } }}
+    >
+      <DialogTitle sx={{ color: 'background.default' }}>{isEdit ? 'Edit Project' : 'Add New Project'}</DialogTitle>
+      <DialogContent sx={{ color: 'background.default' }}>
         <Grid container spacing={3} sx={{ mt: 0 }}>
           {/* Project Name field */}
           <Grid item xs={12} md={6}>
@@ -245,8 +251,8 @@ const AddProjectForm: React.FC<AddProjectFormProps> = ({ open, onClose, onAdd, o
           ))}
         </Grid>
       </DialogContent>
-      <DialogActions>
-        <Button onClick={handleClose}>Cancel</Button>
+      <DialogActions sx={{ color: 'background.default' }}>
+        <Button onClick={handleClose} color="inherit">Cancel</Button>
         <Button
           onClick={handleSubmit}
           variant="contained"

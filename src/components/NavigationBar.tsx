@@ -34,7 +34,7 @@ const NavigationBar: React.FC<NavigationBarProps> = ({ title }) => {
   ];
 
   return (
-    <AppBar position="static">
+    <AppBar position="static" sx={{ backgroundColor: theme.palette.background.paper }}>
       <Toolbar>
         <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
           {title}

@@ -11,7 +11,7 @@ import SettingsPage from './pages/SettingsPage';
 const theme = createTheme({
   palette: {
     primary: {
-      main: '#1976D2', // Blue
+      main: '#2e7d32', // Dark shade of green
     },
     secondary: {
       main: '#388E3C', // Green
@@ -23,8 +23,8 @@ const theme = createTheme({
       primary: '#212121', // Dark Grey
     },
     background: {
-      default: '#FFFFFF', // White
-      paper: '#F5F5F5', // Light Grey
+      default: '#212529', // Overall page background (darker shade)
+      paper: '#343a40', // Panels and header background (lighter shade)
     },
   },
   typography: {

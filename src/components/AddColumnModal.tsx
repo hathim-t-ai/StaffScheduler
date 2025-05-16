@@ -42,9 +42,15 @@ const AddColumnModal: React.FC<AddColumnModalProps> = ({ open, onClose, onAdd })
   };
 
   return (
-    <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth>
-      <DialogTitle>Add New Column</DialogTitle>
-      <DialogContent>
+    <Dialog
+      open={open}
+      onClose={handleClose}
+      maxWidth="sm"
+      fullWidth
+      PaperProps={{ sx: { bgcolor: 'common.white', color: 'background.default' } }}
+    >
+      <DialogTitle sx={{ color: 'background.default' }}>Add New Column</DialogTitle>
+      <DialogContent sx={{ color: 'background.default' }}>
         <TextField
           autoFocus
           margin="dense"
@@ -58,7 +64,7 @@ const AddColumnModal: React.FC<AddColumnModalProps> = ({ open, onClose, onAdd })
           sx={{ mb: 3 }}
         />
         <FormControl component="fieldset">
-          <FormLabel component="legend">Data Type</FormLabel>
+          <FormLabel component="legend" sx={{ color: 'background.default' }}>Data Type</FormLabel>
           <RadioGroup 
             row 
             value={dataType} 
@@ -71,8 +77,10 @@ const AddColumnModal: React.FC<AddColumnModalProps> = ({ open, onClose, onAdd })
           </RadioGroup>
         </FormControl>
       </DialogContent>
-      <DialogActions>
-        <Button onClick={handleClose}>Cancel</Button>
+      <DialogActions sx={{ color: 'background.default' }}>
+        <Button onClick={handleClose} color="inherit">
+          Cancel
+        </Button>
         <Button onClick={handleSubmit} variant="contained" color="primary">
           Add Column
         </Button>

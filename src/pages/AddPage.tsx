@@ -1,9 +1,8 @@
-import React from 'react';
+/* eslint-disable import/no-duplicates */
+import React, { useState, useEffect } from 'react';
 import { 
   Container, 
   Box, 
-  Tabs, 
-  Tab, 
   Typography, 
   Paper,
   Button,
@@ -13,10 +12,11 @@ import {
   DialogTitle,
   DialogContent,
   DialogContentText,
-  DialogActions
+  DialogActions,
+  IconButton
 } from '@mui/material';
 import NavigationBar from '../components/NavigationBar';
-import DataTable from '../components/DataTable';
+import Table from '../components/ui/table';
 import AddStaffForm from '../components/AddStaffForm';
 import ImportStaffModal from '../components/ImportStaffModal';
 import AddColumnModal from '../components/AddColumnModal';
@@ -24,6 +24,8 @@ import AddProjectForm from '../components/AddProjectForm';
 import ImportProjectModal from '../components/ImportProjectModal';
 import { TabPanel } from '../components/AddPageComponents';
 import { useAddPageManager } from '../hooks/useAddPageManager';
+import Sidebar from '../components/Sidebar';
+import AddIcon from '@mui/icons-material/Add';
 
 /**
  * AddPage Component
@@ -89,123 +91,153 @@ const AddPage: React.FC = () => {
     setEditProject
   } = useAddPageManager();
 
+  // Selection state for bulk actions
+  const [selectedStaffIds, setSelectedStaffIds] = useState<string[]>([]);
+  const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([]);
+  // Clear selection when tab changes
+  useEffect(() => {
+    setSelectedStaffIds([]);
+    setSelectedProjectIds([]);
+  }, [tabValue]);
+
   return (
     <Container maxWidth={false} disableGutters>
       <NavigationBar title="Add Staff & Projects" />
       
-      <Box sx={{ 
-        width: '100%',
-        height: 'calc(100vh - 64px)',
-        overflow: 'auto',
-        bgcolor: 'background.default',
-        pt: 2,
-        px: 2
-      }}>
-        <Paper elevation={2} sx={{ borderRadius: 2, overflow: 'hidden' }}>
-          <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
-            <Tabs 
-              value={tabValue} 
-              onChange={handleTabChange}
-              aria-label="add-content-tabs"
-              sx={{ 
-                px: 2, 
-                pt: 2,
-                '& .MuiTab-root': { fontWeight: 'medium' }
-              }}
-            >
-              <Tab label="People" id="tab-0" />
-              <Tab label="Projects" id="tab-1" />
-            </Tabs>
-          </Box>
-          
-          {/* People Tab Content */}
-          <TabPanel value={tabValue} index={0}>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
-              <Typography variant="h5" color="primary">
-                Staff
-              </Typography>
-              <Box>
-                <Button 
-                  variant="outlined" 
-                  color="primary" 
-                  onClick={() => setOpenAddColumnModal(true)}
-                  sx={{ mr: 1 }}
-                >
-                  Add Column
-                </Button>
-                <Button 
-                  variant="outlined" 
-                  color="primary" 
-                  onClick={() => setOpenImportStaffModal(true)}
-                  sx={{ mr: 1 }}
-                >
-                  Import
-                </Button>
-                <Button 
-                  variant="contained" 
-                  onClick={() => setOpenAddStaffForm(true)}
-                >
-                  Add Staff
-                </Button>
+      <Box sx={{ display: 'flex', height: 'calc(100vh - 64px)' }}>
+        {/* Sidebar */}
+        <Sidebar selected={tabValue} onSelect={newValue => setTabValue(newValue)} />
+        {/* Content Area */}
+        <Box sx={{ flexGrow: 1, overflow: 'auto', bgcolor: 'background.default', pt: 2, px: 2 }}>
+          <Paper elevation={2} sx={{ borderRadius: 2, overflow: 'hidden', bgcolor: 'background.default' }}>
+            {/* People Tab Content */}
+            <TabPanel value={tabValue} index={0}>
+              {/* Bulk Actions for Staff */}
+              {selectedStaffIds.length > 0 && (
+                <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1, mb: 1, bgcolor: 'background.default', px: 2, py: 1 }}>
+                  <Button
+                    variant="outlined"
+                    color="error"
+                    onClick={() => { handleDeleteMultipleStaffRows(selectedStaffIds); setSelectedStaffIds([]); }}
+                  >
+                    Delete
+                  </Button>
+                  <Button
+                    variant="outlined"
+                    color="primary"
+                    disabled={selectedStaffIds.length !== 1}
+                    onClick={() => handleEditStaffRow(selectedStaffIds[0])}
+                  >
+                    Edit
+                  </Button>
+                </Box>
+              )}
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2, bgcolor: 'background.default', color: 'common.white', px: 2, py: 1 }}>
+                <Typography variant="h5" sx={{ color: 'common.white' }}>
+                  Staff
+                </Typography>
+                <Box>
+                  <Button
+                    variant="outlined"
+                    color="inherit"
+                    onClick={() => setOpenImportStaffModal(true)}
+                    sx={{ mr: 1, borderColor: 'common.white', color: 'common.white', '&:hover': { borderColor: 'common.white' } }}
+                  >
+                    Import
+                  </Button>
+                  <Button
+                    variant="contained"
+                    onClick={() => setOpenAddStaffForm(true)}
+                  >
+                    Add Staff
+                  </Button>
+                </Box>
               </Box>
-            </Box>
+              <Table
+                dataSource={staffMembers}
+                columns={getStaffColumns().map(col => {
+                  if (col.field === 'skills') {
+                    return {
+                      title: col.headerName,
+                      dataIndex: col.field,
+                      key: col.field,
+                      renderHeader: () => (
+                        <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                          <Box component="span" sx={{ mr: 1 }}>{col.headerName}</Box>
+                          <IconButton size="small" onClick={() => setOpenAddColumnModal(true)}>
+                            <AddIcon fontSize="small" />
+                          </IconButton>
+                        </Box>
+                      ),
+                    };
+                  }
+                  return { title: col.headerName, dataIndex: col.field, key: col.field };
+                })}
+                showIndex
+                rowSelection={{ selectedKeys: selectedStaffIds, onChange: setSelectedStaffIds }}
+                rowKey="id"
+              />
+            </TabPanel>
             
-            <DataTable 
-              data={staffMembers}
-              columns={getStaffColumns()}
-              onDeleteRow={handleDeleteStaffRow}
-              onDeleteMultipleRows={handleDeleteMultipleStaffRows}
-              onEditRow={handleEditStaffRow}
-              onDeleteColumn={handleDeleteStaffColumn}
-              onAddColumn={() => setOpenAddColumnModal(true)}
-              customFields={staffCustomFields}
-            />
-          </TabPanel>
-          
-          {/* Projects Tab Content */}
-          <TabPanel value={tabValue} index={1}>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
-              <Typography variant="h5" color="primary">
-                Projects
-              </Typography>
-              <Box>
-                <Button 
-                  variant="outlined" 
-                  color="primary" 
-                  onClick={() => setOpenAddColumnModal(true)}
-                  sx={{ mr: 1 }}
-                >
-                  Add Column
-                </Button>
-                <Button 
-                  variant="outlined" 
-                  color="primary" 
-                  onClick={() => setOpenImportProjectModal(true)}
-                  sx={{ mr: 1 }}
-                >
-                  Import
-                </Button>
-                <Button 
-                  variant="contained" 
-                  onClick={() => setOpenAddProjectForm(true)}
-                >
-                  Add Project
-                </Button>
+            {/* Projects Tab Content */}
+            <TabPanel value={tabValue} index={1}>
+              {/* Bulk Actions for Projects */}
+              {selectedProjectIds.length > 0 && (
+                <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1, mb: 1, bgcolor: 'background.default', px: 2, py: 1 }}>
+                  <Button
+                    variant="outlined"
+                    color="error"
+                    onClick={() => { handleDeleteMultipleProjectRows(selectedProjectIds); setSelectedProjectIds([]); }}
+                  >
+                    Delete
+                  </Button>
+                  <Button
+                    variant="outlined"
+                    color="primary"
+                    disabled={selectedProjectIds.length !== 1}
+                    onClick={() => handleEditProjectRow(selectedProjectIds[0])}
+                  >
+                    Edit
+                  </Button>
+                </Box>
+              )}
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2, bgcolor: 'background.default', color: 'common.white', px: 2, py: 1 }}>
+                <Typography variant="h5" sx={{ color: 'common.white' }}>
+                  Projects
+                </Typography>
+                <Box>
+                  <Button
+                    variant="outlined"
+                    color="inherit"
+                    onClick={() => setOpenImportProjectModal(true)}
+                    sx={{ mr: 1, borderColor: 'common.white', color: 'common.white', '&:hover': { borderColor: 'common.white' } }}
+                  >
+                    Import
+                  </Button>
+                  <Button
+                    variant="contained"
+                    onClick={() => setOpenAddProjectForm(true)}
+                  >
+                    Add Project
+                  </Button>
+                </Box>
               </Box>
-            </Box>
-            
-            <DataTable 
-              data={projects}
-              columns={getProjectColumns()}
-              onDeleteRow={handleDeleteProjectRow}
-              onDeleteMultipleRows={handleDeleteMultipleProjectRows}
-              onEditRow={handleEditProjectRow}
-              onDeleteColumn={handleDeleteProjectColumn}
-              onAddColumn={() => setOpenAddColumnModal(true)}
-              customFields={projectCustomFields}
-            />
-          </TabPanel>
-        </Paper>
+              
+              <Table
+                dataSource={projects}
+                columns={getProjectColumns().map(col => ({
+                  title: col.headerName,
+                  dataIndex: col.field,
+                  key: col.field,
+                  renderCell: col.renderCell
+                }))}
+                showIndex
+                rowSelection={{ selectedKeys: selectedProjectIds, onChange: setSelectedProjectIds }}
+                rowKey="id"
+              />
+            </TabPanel>
+          </Paper>
+        </Box>
       </Box>
       
       {/* Add Staff Form Modal */}

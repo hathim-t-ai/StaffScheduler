@@ -351,15 +351,15 @@ const ImportProjectModal: React.FC<ImportProjectModalProps> = ({ open, onClose, 
   }, []);
 
   return (
-    <Dialog 
-      open={open} 
-      onClose={handleClose} 
-      maxWidth="md" 
+    <Dialog
+      open={open}
+      onClose={handleClose}
+      maxWidth="md"
       fullWidth
-      PaperProps={{ sx: { minHeight: '60vh' } }}
+      PaperProps={{ sx: { minHeight: '60vh', bgcolor: 'common.white', color: 'background.default' } }}
     >
-      <DialogTitle>Import Project Data</DialogTitle>
-      <DialogContent>
+      <DialogTitle sx={{ color: 'background.default' }}>Import Project Data</DialogTitle>
+      <DialogContent sx={{ color: 'background.default' }}>
         <Stepper activeStep={activeStep} sx={{ mb: 4, pt: 2 }}>
           {steps.map((label) => (
             <Step key={label}>
@@ -589,10 +589,10 @@ const ImportProjectModal: React.FC<ImportProjectModalProps> = ({ open, onClose, 
           </Box>
         )}
       </DialogContent>
-      <DialogActions>
-        <Button onClick={handleClose}>Cancel</Button>
+      <DialogActions sx={{ color: 'background.default' }}>
+        <Button onClick={handleClose} color="inherit">Cancel</Button>
         {activeStep > 0 && (
-          <Button onClick={handleBack}>
+          <Button onClick={handleBack} color="inherit">
             Back
           </Button>
         )}

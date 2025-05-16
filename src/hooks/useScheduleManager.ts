@@ -102,6 +102,16 @@ export const useScheduleManager = (staffMembers: StaffMember[], projects: Projec
   
   // Add a new task in the drawer
   const addNewTask = (taskType: string, hours: number) => {
+    // Prevent assigning more than 8 hours per day
+    const totalCurrentHours = currentTasks.reduce((sum, t) => sum + t.hours, 0);
+    if (totalCurrentHours + hours > 8) {
+      setNotification({
+        open: true,
+        message: 'Cannot assign more than 8 hours per day for a staff member',
+        severity: 'error'
+      });
+      return;
+    }
     const newTask: ScheduleTask = {
       id: uuidv4(),
       staffId: selectedStaffId,
@@ -116,6 +126,16 @@ export const useScheduleManager = (staffMembers: StaffMember[], projects: Projec
   
   // Save and apply tasks from the drawer
   const saveAndApply = () => {
+    // Validate total hours for the day before saving
+    const totalHoursForDay = currentTasks.reduce((sum, t) => sum + t.hours, 0);
+    if (totalHoursForDay > 8) {
+      setNotification({
+        open: true,
+        message: 'Cannot assign more than 8 hours per day for a staff member',
+        severity: 'error'
+      });
+      return;
+    }
     // Remove existing tasks for this staff and date from the state
     const filteredTasks = scheduleTasks.filter(
       task => !(task.staffId === selectedStaffId && task.date === selectedDate)
@@ -180,13 +200,26 @@ export const useScheduleManager = (staffMembers: StaffMember[], projects: Projec
       date: targetDateStr
     }));
     
+    // Prevent assigning more than 8 hours per day when dropping
+    const totalDroppedHours = newTasks.reduce((sum, t) => sum + t.hours, 0);
+    if (totalDroppedHours > 8) {
+      setNotification({
+        open: true,
+        message: 'Cannot assign more than 8 hours per day for a staff member',
+        severity: 'error'
+      });
+      setDropTargetStaffId(null);
+      setDropTargetDate(null);
+      return;
+    }
+    
     // Remove existing tasks for the target date and staff
-    const filteredTasks = scheduleTasks.filter(
+    const filteredTasksDrop = scheduleTasks.filter(
       task => !(task.staffId === targetStaffId && task.date === targetDateStr)
     );
     
     // Add the new tasks
-    const updatedTasks = [...filteredTasks, ...newTasks];
+    const updatedTasks = [...filteredTasksDrop, ...newTasks];
     dispatch(setTasks(updatedTasks));
     
     // Show success notification
@@ -262,13 +295,25 @@ export const useScheduleManager = (staffMembers: StaffMember[], projects: Projec
       date
     }));
     
+    // Prevent assigning more than 8 hours per day when pasting
+    const totalPasteHours = newTasks.reduce((sum, t) => sum + t.hours, 0);
+    if (totalPasteHours > 8) {
+      setNotification({
+        open: true,
+        message: 'Cannot assign more than 8 hours per day for a staff member',
+        severity: 'error'
+      });
+      handleCloseContextMenu();
+      return;
+    }
+    
     // Remove existing tasks for the target date and staff
-    const filteredTasks = scheduleTasks.filter(
+    const filteredTasksPaste = scheduleTasks.filter(
       task => !(task.staffId === staffId && task.date === date)
     );
     
     // Add the new tasks
-    const updatedTasks = [...filteredTasks, ...newTasks];
+    const updatedTasks = [...filteredTasksPaste, ...newTasks];
     dispatch(setTasks(updatedTasks));
     
     // Show success notification
@@ -315,6 +360,16 @@ export const useScheduleManager = (staffMembers: StaffMember[], projects: Projec
   };
   
   const applyWeeklyAssignment = (projectName: string, hours: number[]) => {
+    // Prevent any single-day assignment exceeding 8 hours
+    if (hours.some(dayHours => dayHours > 8)) {
+      setNotification({
+        open: true,
+        message: 'Cannot assign more than 8 hours per day for a staff member',
+        severity: 'error'
+      });
+      handleCloseWeeklyDialog();
+      return;
+    }
     // Get the week dates
     const isoDateStrings = weekDates.map(date => formatDateISO(date));
     
@@ -412,6 +467,29 @@ export const useScheduleManager = (staffMembers: StaffMember[], projects: Projec
         // Update remaining hours and day index
         remainingHours -= hoursForDay;
         dayIndex++;
+      }
+    }
+    
+    // Validate max 8 hours per day including existing assignments
+    const addedHoursByStaffDate: Record<string, number> = {};
+    newTasks.forEach(task => {
+      const key = `${task.staffId}|${task.date}`;
+      addedHoursByStaffDate[key] = (addedHoursByStaffDate[key] || 0) + task.hours;
+    });
+    for (const [key, added] of Object.entries(addedHoursByStaffDate)) {
+      const [staffId, date] = key.split('|');
+      const existingTotal = scheduleTasks
+        .filter(t => t.staffId === staffId && t.date === date)
+        .reduce((sum, t) => sum + t.hours, 0);
+      if (existingTotal + added > 8) {
+        const staffName = staffMembers.find(s => s.id === staffId)?.name || 'Staff member';
+        setNotification({
+          open: true,
+          message: `Cannot assign more than 8 hours for ${staffName} on ${date}`,
+          severity: 'error'
+        });
+        closeBulkAssignDialog();
+        return;
       }
     }
     

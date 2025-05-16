@@ -43,16 +43,25 @@ const LandingPage: React.FC = () => {
 
   return (
     <Container maxWidth="lg" sx={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
-      <Box 
-        sx={{ 
-          position: 'absolute', 
-          top: 16, 
-          right: 16 
+      <Box
+        component="header"
+        sx={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          height: 64,
+          backgroundColor: theme.palette.background.paper,
+          display: 'flex',
+          justifyContent: 'flex-end',
+          alignItems: 'center',
+          px: 2,
+          zIndex: 1
         }}
       >
-        <IconButton 
-          aria-label="settings" 
-          color="primary" 
+        <IconButton
+          aria-label="settings"
+          color="primary"
           onClick={() => navigate('/settings')}
           size="large"
         >
@@ -86,7 +95,7 @@ const LandingPage: React.FC = () => {
           flexGrow: 1
         }}
       >
-        <Typography variant="h1" component="h1" gutterBottom align="center" sx={{ mb: 6 }}>
+        <Typography variant="h1" component="h1" gutterBottom align="center" sx={{ mb: 6, color: theme.palette.primary.main }}>
           Staff Scheduler
         </Typography>
         
@@ -95,6 +104,7 @@ const LandingPage: React.FC = () => {
             <Grid item xs={12} sm={6} md={4} key={index}>
               <Card 
                 sx={{ 
+                  backgroundColor: theme.palette.background.paper,
                   height: '100%', 
                   display: 'flex', 
                   flexDirection: 'column',
@@ -111,10 +121,10 @@ const LandingPage: React.FC = () => {
                   <Box sx={{ mb: 2 }}>
                     {item.icon}
                   </Box>
-                  <Typography variant="h2" component="h2" gutterBottom>
+                  <Typography variant="h2" component="h2" gutterBottom sx={{ color: theme.palette.common.white }}>
                     {item.title}
                   </Typography>
-                  <Typography variant="body1" color="textSecondary">
+                  <Typography variant="body1" sx={{ color: theme.palette.common.white }}>
                     {item.description}
                   </Typography>
                 </CardContent>

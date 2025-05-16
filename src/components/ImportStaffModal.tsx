@@ -324,15 +324,15 @@ const ImportStaffModal: React.FC<ImportStaffModalProps> = ({ open, onClose, onIm
   }, []);
 
   return (
-    <Dialog 
-      open={open} 
-      onClose={handleClose} 
-      maxWidth="md" 
+    <Dialog
+      open={open}
+      onClose={handleClose}
+      maxWidth="md"
       fullWidth
-      PaperProps={{ sx: { minHeight: '60vh' } }}
+      PaperProps={{ sx: { minHeight: '60vh', bgcolor: 'common.white', color: 'background.default' } }}
     >
-      <DialogTitle>Import Staff Data</DialogTitle>
-      <DialogContent>
+      <DialogTitle sx={{ color: 'background.default' }}>Import Staff Data</DialogTitle>
+      <DialogContent sx={{ color: 'background.default' }}>
         <Stepper activeStep={activeStep} sx={{ mb: 4, pt: 2 }}>
           {steps.map((label) => (
             <Step key={label}>
@@ -361,10 +361,11 @@ const ImportStaffModal: React.FC<ImportStaffModalProps> = ({ open, onClose, onIm
               id="staff-file-upload"
             />
             
-            <Paper 
+            <Paper
               elevation={3}
-              sx={{ 
-                p: 5, 
+              sx={{
+                p: 5,
+                bgcolor: 'common.white',
                 borderRadius: 2,
                 border: '2px dashed',
                 borderColor: 'divider',
@@ -564,12 +565,10 @@ const ImportStaffModal: React.FC<ImportStaffModalProps> = ({ open, onClose, onIm
           </Box>
         )}
       </DialogContent>
-      <DialogActions>
-        <Button onClick={handleClose}>Cancel</Button>
+      <DialogActions sx={{ color: 'background.default' }}>
+        <Button onClick={handleClose} color="inherit">Cancel</Button>
         {activeStep > 0 && (
-          <Button onClick={handleBack}>
-            Back
-          </Button>
+          <Button onClick={handleBack} color="inherit">Back</Button>
         )}
         {activeStep < steps.length - 1 ? (
           <Button 
@@ -578,7 +577,7 @@ const ImportStaffModal: React.FC<ImportStaffModalProps> = ({ open, onClose, onIm
             color="primary"
             disabled={activeStep === 0 && !file}
           >
-            Next
+            {activeStep === steps.length - 1 ? 'Import' : 'Next'}
           </Button>
         ) : (
           <Button 

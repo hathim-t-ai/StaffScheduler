@@ -149,9 +149,15 @@ const AddStaffForm: React.FC<AddStaffFormProps> = ({ open, onClose, onAdd, onUpd
   };
 
   return (
-    <Dialog open={open} onClose={handleClose} maxWidth="md" fullWidth>
-      <DialogTitle>{isEdit ? 'Edit Staff Member' : 'Add New Staff Member'}</DialogTitle>
-      <DialogContent>
+    <Dialog
+      open={open}
+      onClose={handleClose}
+      maxWidth="md"
+      fullWidth
+      PaperProps={{ sx: { bgcolor: 'common.white', color: 'background.default' } }}
+    >
+      <DialogTitle sx={{ color: 'background.default' }}>{isEdit ? 'Edit Staff Member' : 'Add New Staff Member'}</DialogTitle>
+      <DialogContent sx={{ color: 'background.default' }}>
         <Grid container spacing={3} sx={{ mt: 0 }}>
           <Grid item xs={12} md={6}>
             <TextField
@@ -260,8 +266,8 @@ const AddStaffForm: React.FC<AddStaffFormProps> = ({ open, onClose, onAdd, onUpd
           ))}
         </Grid>
       </DialogContent>
-      <DialogActions>
-        <Button onClick={handleClose}>Cancel</Button>
+      <DialogActions sx={{ color: 'background.default' }}>
+        <Button onClick={handleClose} color="inherit">Cancel</Button>
         <Button
           onClick={handleSubmit}
           variant="contained"
