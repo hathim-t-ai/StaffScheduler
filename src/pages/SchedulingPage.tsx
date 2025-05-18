@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Container, Box, Button, Dialog, DialogTitle, DialogContent, DialogActions, Typography } from '@mui/material';
+import { Container, Box, Button, Dialog, DialogTitle, DialogContent, DialogActions, Typography, Paper } from '@mui/material';
 import { useSelector, useDispatch } from 'react-redux';
 import { RootState } from '../store';
 import NavigationBar from '../components/NavigationBar';
@@ -19,7 +19,7 @@ import { ContextMenuPosition, NotificationState } from '../components/schedule/t
 import { useScheduleManager } from '../hooks/useScheduleManager';
 import { getDatesForCurrentWeek, isAtEndDate as checkIsAtEndDate } from '../utils/ScheduleUtils';
 import { StaffMember } from '../store/slices/staffSlice';
-import { clearSchedule } from '../store/slices/scheduleSlice';
+import { clearSchedule, clearScheduleForStaff } from '../store/slices/scheduleSlice';
 
 const SchedulingPage: React.FC = () => {
   const dispatch = useDispatch();
@@ -33,6 +33,9 @@ const SchedulingPage: React.FC = () => {
   
   // State for clear schedule confirmation dialog
   const [clearDialogOpen, setClearDialogOpen] = useState(false);
+  
+  // State for selected staff for individual clear
+  const [selectedStaffIds, setSelectedStaffIds] = useState<string[]>([]);
   
   // Task management hook
   const {
@@ -87,6 +90,11 @@ const SchedulingPage: React.FC = () => {
     setFilteredStaff(staffMembers);
   }, [staffMembers]);
   
+  // Handler to select individual staff rows
+  const handleStaffSelect = (staffId: string, checked: boolean) => {
+    setSelectedStaffIds(prev => checked ? [...prev, staffId] : prev.filter(id => id !== staffId));
+  };
+  
   // Clear schedule handlers
   const handleOpenClearDialog = () => {
     setClearDialogOpen(true);
@@ -97,7 +105,12 @@ const SchedulingPage: React.FC = () => {
   };
   
   const handleClearSchedule = () => {
-    dispatch(clearSchedule());
+    if (selectedStaffIds.length > 0) {
+      dispatch(clearScheduleForStaff(selectedStaffIds));
+      setSelectedStaffIds([]);
+    } else {
+      dispatch(clearSchedule());
+    }
     setClearDialogOpen(false);
     
     // Show notification using the notification system from useScheduleManager
@@ -116,54 +129,53 @@ const SchedulingPage: React.FC = () => {
         display: 'flex',
         height: 'calc(100vh - 64px)'
       }}>
-        {/* Filter Sidebar */}
-        <FilterSidebar 
-          staffMembers={staffMembers}
-          scheduleTasks={scheduleTasks}
-          projects={projects}
-          onFilterChange={handleFilterChange}
-          onWeeklyAssign={handleWeeklyAssign}
-        />
+        {/* Placeholder Sidebar */}
+        <Box sx={theme => ({ width: theme.spacing(7), bgcolor: 'background.paper' })} />
         
-        {/* Calendar View */}
-        <Box sx={{ display: 'flex', flexDirection: 'column', width: '100%' }}>
-          <Box sx={{ 
-            display: 'flex', 
-            justifyContent: 'flex-end', 
-            p: 1, 
-            borderBottom: '1px solid rgba(0, 0, 0, 0.12)' 
-          }}>
-            <Button 
-              variant="outlined" 
-              color="error" 
-              startIcon={<DeleteIcon />}
-              onClick={handleOpenClearDialog}
-              size="small"
-              sx={{ mr: 2 }}
-            >
-              Clear Schedule
-            </Button>
-          </Box>
-          
-          <ScheduleCalendar 
-            filteredStaff={filteredStaff}
-            tasks={scheduleTasks}
-            currentStartDate={currentStartDate}
-            weekDates={weekDates}
-            onCellClick={openTaskDrawer}
-            onPreviousWeek={goToPreviousWeek}
-            onNextWeek={goToNextWeek}
-            isAtEndDate={checkIsAtEndDate(currentStartDate)}
-            dropTargetStaffId={dropTargetStaffId}
-            dropTargetDate={dropTargetDate}
-            onDragStart={handleDragStart}
-            onDragOver={handleDragOver}
-            onDrop={handleDrop}
-            onDragEnd={handleDragEnd}
-            onContextMenu={handleContextMenu}
-            onBulkAssign={openBulkAssignDialog}
-            onWeeklyAssign={handleWeeklyAssign}
-          />
+        {/* Calendar & Filters View */}
+        <Box sx={{ flexGrow: 1, overflow: 'auto', bgcolor: 'background.default', pt: 2, px: 2 }}>
+          <Paper elevation={2} sx={{ borderRadius: 2, overflow: 'hidden', bgcolor: 'common.white' }}>
+            {/* Header: filters + clear button */}
+            <Box sx={{ display: 'flex', alignItems: 'center', mb: 2, bgcolor: 'common.white', color: 'text.primary', px: 2, py: 1, gap: 2 }}>
+              {/* Inline Filters */}
+              <Box sx={{ flexGrow: 1 }}>
+                <FilterSidebar
+                  horizontal
+                  staffMembers={staffMembers}
+                  scheduleTasks={scheduleTasks}
+                  projects={projects}
+                  onFilterChange={handleFilterChange}
+                  onWeeklyAssign={handleWeeklyAssign}
+                />
+              </Box>
+              {/* Clear Schedule button */}
+              <Button variant="outlined" color="error" startIcon={<DeleteIcon />} onClick={handleOpenClearDialog} size="small" sx={{ ml: 'auto' }}>
+                Clear Schedule
+              </Button>
+            </Box>
+            {/* Calendar */}
+            <ScheduleCalendar
+              filteredStaff={filteredStaff}
+              tasks={scheduleTasks}
+              currentStartDate={currentStartDate}
+              weekDates={weekDates}
+              onCellClick={openTaskDrawer}
+              onPreviousWeek={goToPreviousWeek}
+              onNextWeek={goToNextWeek}
+              isAtEndDate={checkIsAtEndDate(currentStartDate)}
+              dropTargetStaffId={dropTargetStaffId}
+              dropTargetDate={dropTargetDate}
+              onDragStart={handleDragStart}
+              onDragOver={handleDragOver}
+              onDrop={handleDrop}
+              onDragEnd={handleDragEnd}
+              onContextMenu={handleContextMenu}
+              onBulkAssign={openBulkAssignDialog}
+              onWeeklyAssign={handleWeeklyAssign}
+              selectedStaffIds={selectedStaffIds}
+              onStaffSelect={handleStaffSelect}
+            />
+          </Paper>
         </Box>
       </Box>
       
@@ -220,9 +232,9 @@ const SchedulingPage: React.FC = () => {
       />
       
       {/* Clear Schedule Confirmation Dialog */}
-      <Dialog open={clearDialogOpen} onClose={handleCloseClearDialog}>
+      <Dialog open={clearDialogOpen} onClose={handleCloseClearDialog} PaperProps={{ sx: { bgcolor: 'common.white' } }}>
         <DialogTitle>Clear Schedule</DialogTitle>
-        <DialogContent>
+        <DialogContent sx={{ bgcolor: 'common.white' }}>
           <Typography>
             Are you sure you want to clear all schedule data? This action cannot be undone.
           </Typography>

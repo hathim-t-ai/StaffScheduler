@@ -493,6 +493,28 @@ export const useScheduleManager = (staffMembers: StaffMember[], projects: Projec
       }
     }
     
+    // Validate project budget constraint
+    // Calculate total hours for this project including existing and new assignments
+    const project = projects.find(p => p.name === projectName);
+    if (project) {
+      const projectId = project.id;
+      const existingProjectHours = scheduleTasks
+        .filter(t => t.projectId === projectId)
+        .reduce((sum, t) => sum + t.hours, 0);
+      const newProjectHours = newTasks
+        .filter(t => t.projectId === projectId)
+        .reduce((sum, t) => sum + t.hours, 0);
+      if (existingProjectHours + newProjectHours > project.budget) {
+        setNotification({
+          open: true,
+          message: `Cannot assign tasks: project budget of ${project.budget} hours for ${project.name} would be exceeded`,
+          severity: 'error'
+        });
+        closeBulkAssignDialog();
+        return;
+      }
+    }
+    
     // Update the state
     dispatch(setTasks([...scheduleTasks, ...newTasks]));
     

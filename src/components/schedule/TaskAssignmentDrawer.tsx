@@ -114,8 +114,10 @@ const TaskAssignmentDrawer: React.FC<TaskAssignmentDrawerProps> = ({
         '& .MuiDrawer-paper': {
           width: '400px',
           p: 3,
+          bgcolor: 'common.white',
         },
       }}
+      PaperProps={{ sx: { bgcolor: 'common.white' } }}
     >
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
         <Typography variant="h6">Task Assignment</Typography>
@@ -178,6 +180,7 @@ const TaskAssignmentDrawer: React.FC<TaskAssignmentDrawerProps> = ({
           value={taskType}
           onChange={(e) => setTaskType(e.target.value)}
           label="Task Type"
+          MenuProps={{ PaperProps: { sx: { bgcolor: 'common.white' } } }}
         >
           <MenuItem value="Available">Available</MenuItem>
           <MenuItem value="Annual Leave">Annual Leave</MenuItem>
@@ -197,6 +200,7 @@ const TaskAssignmentDrawer: React.FC<TaskAssignmentDrawerProps> = ({
           value={taskType === 'Annual Leave' || taskType === 'Sick Leave' ? 8 : taskHours}
           onChange={(e) => setTaskHours(Number(e.target.value))}
           label="Hours"
+          MenuProps={{ PaperProps: { sx: { bgcolor: 'common.white' } } }}
         >
           {[1, 2, 3, 4, 5, 6, 7, 8].map((h) => (
             <MenuItem key={h} value={h}>{h} hour{h > 1 ? 's' : ''}</MenuItem>

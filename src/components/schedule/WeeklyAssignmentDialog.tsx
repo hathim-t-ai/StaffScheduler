@@ -82,11 +82,12 @@ const WeeklyAssignmentDialog: React.FC<WeeklyAssignmentDialogProps> = ({
   const staffMember = staffMembers.find(s => s.id === staffId);
   
   return (
-    <Dialog 
-      open={open} 
+    <Dialog
+      open={open}
       onClose={onClose}
       maxWidth="md"
       fullWidth
+      PaperProps={{ sx: { bgcolor: 'common.white' } }}
     >
       <DialogTitle>
         Weekly Assignment
@@ -97,7 +98,7 @@ const WeeklyAssignmentDialog: React.FC<WeeklyAssignmentDialogProps> = ({
         )}
       </DialogTitle>
       
-      <DialogContent>
+      <DialogContent sx={{ bgcolor: 'common.white' }}>
         <FormControl fullWidth sx={{ my: 2 }}>
           <InputLabel id="weekly-project-label">Project</InputLabel>
           <Select
@@ -105,6 +106,7 @@ const WeeklyAssignmentDialog: React.FC<WeeklyAssignmentDialogProps> = ({
             value={projectName}
             onChange={(e) => setProjectName(e.target.value)}
             label="Project"
+            MenuProps={{ PaperProps: { sx: { bgcolor: 'common.white' } } }}
           >
             <MenuItem value="">Select a Project</MenuItem>
             {projects.map((project) => (

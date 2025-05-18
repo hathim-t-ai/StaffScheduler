@@ -5,7 +5,9 @@ import {
   Typography,
   Grid,
   IconButton,
-  Button
+  Button,
+  Checkbox,
+  Tooltip
 } from '@mui/material';
 import NavigateBeforeIcon from '@mui/icons-material/NavigateBefore';
 import NavigateNextIcon from '@mui/icons-material/NavigateNext';
@@ -34,6 +36,8 @@ interface ScheduleCalendarProps {
   onContextMenu: (e: React.MouseEvent, staffId: string, date: string) => void;
   onBulkAssign: () => void;
   onWeeklyAssign: (staffId: string) => void;
+  selectedStaffIds?: string[];
+  onStaffSelect?: (staffId: string, checked: boolean) => void;
 }
 
 const ScheduleCalendar: React.FC<ScheduleCalendarProps> = ({
@@ -53,7 +57,9 @@ const ScheduleCalendar: React.FC<ScheduleCalendarProps> = ({
   onDragEnd,
   onContextMenu,
   onBulkAssign,
-  onWeeklyAssign
+  onWeeklyAssign,
+  selectedStaffIds = [],
+  onStaffSelect,
 }) => {
   // Format date labels for display
   const dateLabels = weekDates.map(date => formatDate(date));
@@ -99,7 +105,7 @@ const ScheduleCalendar: React.FC<ScheduleCalendarProps> = ({
         </Box>
       </Box>
       
-      <Paper sx={{ mb: 3 }}>
+      <Paper sx={{ mb: 3, bgcolor: 'common.white' }}>
         {/* Calendar header */}
         <Grid container>
           <Grid item xs={2.5} sx={{ p: 1, borderRight: 1, borderBottom: 1, borderColor: 'divider' }}>
@@ -117,11 +123,22 @@ const ScheduleCalendar: React.FC<ScheduleCalendarProps> = ({
         {filteredStaff.map((staff) => (
           <Grid container key={staff.id}>
             <Grid item xs={2.5} sx={{ p: 1, borderRight: 1, borderBottom: 1, borderColor: 'divider' }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <Typography variant="body2">{staff.name}</Typography>
-                <IconButton size="small" onClick={() => onWeeklyAssign(staff.id)} title="Assign weekly schedule">
-                  <CalendarTodayIcon fontSize="small" />
-                </IconButton>
+              <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                {onStaffSelect && (
+                  <Checkbox
+                    checked={selectedStaffIds.includes(staff.id)}
+                    onChange={e => onStaffSelect(staff.id, e.target.checked)}
+                    sx={{ mr: 1 }}
+                  />
+                )}
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexGrow: 1 }}>
+                  <Typography variant="body2">{staff.name}</Typography>
+                  <Tooltip title="Weekly Assignment">
+                    <IconButton size="small" onClick={() => onWeeklyAssign(staff.id)}>
+                      <CalendarTodayIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                </Box>
               </Box>
               <Typography variant="caption" component="div" color="textSecondary">{staff.grade}</Typography>
               <Typography variant="caption" component="div" color="textSecondary">{staff.department}</Typography>

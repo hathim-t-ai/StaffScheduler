@@ -121,14 +121,15 @@ const BulkAssignmentDialog: React.FC<BulkAssignmentDialogProps> = ({
   };
   
   return (
-    <Dialog 
-      open={open} 
+    <Dialog
+      open={open}
       onClose={onClose}
       maxWidth="md"
       fullWidth
+      PaperProps={{ sx: { bgcolor: 'common.white' } }}
     >
       <DialogTitle>Bulk Project Assignment</DialogTitle>
-      <DialogContent>
+      <DialogContent sx={{ bgcolor: 'common.white' }}>
         <Tabs
           value={tabIndex}
           onChange={(e, newValue) => setTabIndex(newValue)}
@@ -144,6 +145,7 @@ const BulkAssignmentDialog: React.FC<BulkAssignmentDialogProps> = ({
               <InputLabel id="bulk-project-label">Project</InputLabel>
               <Select
                 labelId="bulk-project-label"
+                MenuProps={{ PaperProps: { sx: { bgcolor: 'common.white' } } }}
                 value={projectName}
                 onChange={(e) => setProjectName(e.target.value)}
                 label="Project"
