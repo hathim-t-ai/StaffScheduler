@@ -79,12 +79,14 @@ const SettingsPage: React.FC = () => {
     <Container maxWidth={false} disableGutters sx={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
       <NavigationBar title="Settings" />
       
-      <Box sx={{ 
-        flexGrow: 1, 
-        p: 3,
-        overflowY: 'auto'
+      <Box sx={{
+        flexGrow: 1,
+        overflow: 'auto',
+        bgcolor: 'background.default',
+        pt: 2,
+        px: 2
       }}>
-        <Paper sx={{ mb: 3 }}>
+        <Paper elevation={2} sx={{ mb: 3, borderRadius: 2, overflow: 'hidden', bgcolor: 'common.white' }}>
           <Tabs
             value={tabValue}
             onChange={handleTabChange}
