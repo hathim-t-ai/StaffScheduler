@@ -10,24 +10,24 @@ import {
   ListItem,
   ListItemAvatar,
   ListItemText,
-  ListItemSecondaryAction
+  ListItemSecondaryAction,
+  Button
 } from '@mui/material';
 import NavigationBar from '../components/NavigationBar';
 import { useSelector } from 'react-redux';
 import { RootState } from '../store';
-import { parseISO, subDays, startOfMonth, endOfMonth, isWithinInterval } from 'date-fns';
-import ToggleButton from '@mui/material/ToggleButton';
-import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
+import { parseISO, subDays, startOfMonth, endOfMonth, isWithinInterval, addDays, addMonths, format } from 'date-fns';
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend } from 'chart.js';
 import { Bar } from 'react-chartjs-2';
+import ChartDataLabels from 'chartjs-plugin-datalabels';
+import CalendarTodayIcon from '@mui/icons-material/CalendarToday';
 
-ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend);
+ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend, ChartDataLabels);
 
 const AnalyticsPage: React.FC = () => {
   const [timeframe, setTimeframe] = useState<'weekly' | 'monthly' | 'overall'>('overall');
-  const handleTimeframeChange = (_event: React.MouseEvent<HTMLElement>, newValue: 'weekly' | 'monthly' | 'overall' | null) => {
-    if (newValue) setTimeframe(newValue);
-  };
+  const [startDate, setStartDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
+  const displayStartDate = useMemo(() => format(parseISO(startDate), 'dd/MM/yyyy'), [startDate]);
 
   const staffCount = useSelector((state: RootState) => state.staff.staffMembers.length);
   const projectCount = useSelector((state: RootState) => state.projects.projects.length);
@@ -37,16 +37,22 @@ const AnalyticsPage: React.FC = () => {
   const projects = useSelector((state: RootState) => state.projects.projects);
 
   const filteredTasks = useMemo(() => {
-    const now = new Date();
     if (timeframe === 'weekly') {
-      const weekAgo = subDays(now, 6);
-      return tasks.filter((t) => isWithinInterval(parseISO(t.date), { start: weekAgo, end: now }));
+      const start = parseISO(startDate);
+      const end = addDays(start, 6);
+      return tasks.filter((t) =>
+        isWithinInterval(parseISO(t.date), { start, end })
+      );
     }
     if (timeframe === 'monthly') {
-      return tasks.filter((t) => isWithinInterval(parseISO(t.date), { start: startOfMonth(now), end: endOfMonth(now) }));
+      const start = parseISO(startDate);
+      const end = addMonths(start, 1);
+      return tasks.filter((t) =>
+        isWithinInterval(parseISO(t.date), { start, end })
+      );
     }
     return tasks;
-  }, [tasks, timeframe]);
+  }, [tasks, timeframe, startDate]);
 
   const productiveTasks = useMemo(
     () => filteredTasks.filter((t) => t.projectId && !['Available', 'Annual Leave', 'Sick Leave'].includes(t.taskType)),
@@ -75,34 +81,99 @@ const AnalyticsPage: React.FC = () => {
     ]
   }), [staffMembers, filteredTasks]);
 
-  const projectChartData = useMemo(() => ({
-    labels: projects.map((p) => p.name),
-    datasets: [
-      {
-        label: 'Budget Consumed',
-        data: projects.map((p) =>
-          filteredTasks.filter((t) => t.projectId === p.id).reduce((sum, t) => {
-            const staff = staffMembers.find((s) => s.id === t.staffId);
-            return sum + t.hours * (staff ? gradeRates[staff.grade] || 0 : 0);
-          }, 0)
-        ),
-        backgroundColor: 'rgba(153,102,255,0.6)'
-      }
-    ]
-  }), [projects, staffMembers, gradeRates, filteredTasks]);
+  const projectBudgets = useMemo(() =>
+    projects.map((p) => {
+      const consumed = filteredTasks.filter((t) => t.projectId === p.id).reduce((sum, t) => {
+        const staff = staffMembers.find((s) => s.id === t.staffId);
+        return sum + t.hours * (staff ? gradeRates[staff.grade] || 0 : 0);
+      }, 0);
+      return {
+        id: p.id,
+        name: p.name,
+        client: p.partnerName || '',
+        avatar: p.avatarUrl || '',
+        consumed,
+      };
+    })
+    .sort((a, b) => b.consumed - a.consumed),
+    [projects, staffMembers, gradeRates, filteredTasks]
+  );
 
   return (
     <Container maxWidth={false} disableGutters>
       <NavigationBar title="Analytics" />
-      <Box sx={{ p: 3, bgcolor: 'background.default', minHeight: '100vh' }}>
+      <Box sx={{ p: 3, bgcolor: 'background.default' }}>
 
         {/* Timeframe Filters */}
-        <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
-          <ToggleButtonGroup value={timeframe} exclusive onChange={handleTimeframeChange} size="small">
-            <ToggleButton value="weekly">Weekly</ToggleButton>
-            <ToggleButton value="monthly">Monthly</ToggleButton>
-            <ToggleButton value="overall">Overall</ToggleButton>
-          </ToggleButtonGroup>
+        <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2, gap: 2 }}>
+          {['weekly', 'monthly', 'overall'].map((key) => (
+            <Button
+              key={key}
+              onClick={() => setTimeframe(key as typeof timeframe)}
+              sx={{
+                bgcolor: '#fff',
+                color: '#212121',
+                border: timeframe === key ? '2px solid #212121' : '1px solid #bdbdbd',
+                borderRadius: 2,
+                fontWeight: timeframe === key ? 700 : 400,
+                minWidth: 120,
+                textTransform: 'none',
+                fontSize: 16,
+                boxShadow: 'none',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 1,
+                '&:hover': {
+                  bgcolor: '#fafafa',
+                  border: '2px solid #212121',
+                },
+              }}
+              disableElevation
+              variant="outlined"
+            >
+              {key.charAt(0).toUpperCase() + key.slice(1)}
+            </Button>
+          ))}
+          {timeframe !== 'overall' && (
+            <Button
+              sx={{
+                position: 'relative',
+                bgcolor: '#fff',
+                color: '#212121',
+                border: '1px solid #bdbdbd',
+                borderRadius: 2,
+                fontWeight: 400,
+                minWidth: 120,
+                textTransform: 'none',
+                fontSize: 16,
+                boxShadow: 'none',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 1,
+                height: 48,
+                '&:hover': { bgcolor: '#fafafa', border: '2px solid #212121' },
+              }}
+              disableElevation
+              variant="outlined"
+            >
+              {displayStartDate}
+              <CalendarTodayIcon fontSize="small" />
+              <input
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: '100%',
+                  height: '100%',
+                  opacity: 0,
+                  cursor: 'pointer'
+                }}
+              />
+            </Button>
+          )}
         </Box>
 
         {/* Top metrics cards */}
@@ -138,7 +209,7 @@ const AnalyticsPage: React.FC = () => {
                 Productive Hours
               </Typography>
               <Typography variant="h5" color="textPrimary" sx={{ mt: 1 }}>
-                {productiveHours} hrs
+                {productiveHours.toLocaleString()} hrs
               </Typography>
             </Paper>
           </Grid>
@@ -150,7 +221,7 @@ const AnalyticsPage: React.FC = () => {
                 Expected Revenue
               </Typography>
               <Typography variant="h5" color="textPrimary" sx={{ mt: 1 }}>
-                {expectedRevenue.toFixed(2)} AED
+                {expectedRevenue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} AED
               </Typography>
             </Paper>
           </Grid>
@@ -160,39 +231,70 @@ const AnalyticsPage: React.FC = () => {
         <Grid container spacing={3}>
           {/* Productive Hours per Employee */}
           <Grid item xs={12} md={8}>
-            <Paper sx={{ p: 3, backgroundColor: '#ffffff', height: '100%' }} elevation={1}>
-              <Typography variant="h6" color="textPrimary">
+            <Paper sx={{ p: 3, backgroundColor: '#ffffff', height: 300, display: 'flex', flexDirection: 'column', justifyContent: 'flex-start' }} elevation={1}>
+              <Typography variant="h6" color="textPrimary" sx={{ mb: 2 }}>
                 Productive Hours per Employee
               </Typography>
-              <Box sx={{ mt: 2, height: 350, overflowX: 'auto' }}>
+              <Box sx={{ mt: 4, height: 220, overflowX: 'auto' }}>
                 <div style={{ width: staffMembers.length * 80 }}>
                   <Bar
-                    data={employeeChartData}
+                    data={{
+                      ...employeeChartData,
+                      datasets: [{
+                        ...employeeChartData.datasets[0],
+                        backgroundColor: '#212121',
+                        borderRadius: 8,
+                        barPercentage: 0.7,
+                        categoryPercentage: 0.7,
+                      }]
+                    }}
                     options={{
                       maintainAspectRatio: false,
-                      scales: { y: { beginAtZero: true } }
+                      layout: { padding: { top: 20 } },
+                      plugins: {
+                        legend: { display: false },
+                        datalabels: {
+                          anchor: 'end',
+                          align: 'end',
+                          color: '#212121',
+                          font: { weight: 'bold', size: 16 },
+                          formatter: (v: number) => v.toLocaleString(),
+                        },
+                        tooltip: { enabled: true },
+                      } as any,
+                      scales: {
+                        x: { grid: { display: false } },
+                        y: { beginAtZero: true, grid: { color: '#f0f0f0' } }
+                      }
                     }}
+                    plugins={[ChartDataLabels]}
                   />
                 </div>
               </Box>
             </Paper>
           </Grid>
-          {/* Budget Consumption per Project */}
+          {/* Budget Consumption per Project - Recent Sales Style */}
           <Grid item xs={12} md={4}>
-            <Paper sx={{ p: 3, backgroundColor: '#ffffff', height: '100%' }} elevation={1}>
-              <Typography variant="h6" color="textPrimary">
+            <Paper sx={{ p: 3, backgroundColor: '#ffffff', height: 300 }} elevation={1}>
+              <Typography variant="h6" color="textPrimary" sx={{ mb: 2 }}>
                 Budget Consumption per Project
               </Typography>
-              <Box sx={{ mt: 2, height: 350, overflowX: 'auto' }}>
-                <div style={{ width: projects.length * 80 }}>
-                  <Bar
-                    data={projectChartData}
-                    options={{
-                      maintainAspectRatio: false,
-                      scales: { y: { beginAtZero: true } }
-                    }}
-                  />
-                </div>
+              <Box sx={{ height: 220, overflowY: 'auto' }}>
+                <List>
+                  {projectBudgets.map((proj) => (
+                    <ListItem key={proj.id} sx={{ py: 2, borderBottom: '1px solid #f0f0f0', alignItems: 'flex-start' }}>
+                      <ListItemText
+                        primary={<Typography fontWeight={600}>{proj.name}</Typography>}
+                        secondary={proj.client && <Typography variant="body2" color="textSecondary">{proj.client}</Typography>}
+                      />
+                      <Box sx={{ textAlign: 'right', minWidth: 120 }}>
+                        <Typography fontWeight={700} color="textPrimary" sx={{ fontSize: 18 }}>
+                          {proj.consumed.toLocaleString()}<span style={{ color: '#bdbdbd', fontWeight: 400, fontSize: 15 }}>/{(projects.find(p => p.id === proj.id)?.budget || 0).toLocaleString()}</span> AED
+                        </Typography>
+                      </Box>
+                    </ListItem>
+                  ))}
+                </List>
               </Box>
             </Paper>
           </Grid>
