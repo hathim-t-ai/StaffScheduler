@@ -7,8 +7,9 @@ const prisma = require('./prismaClient');
  * Fetch assignments for a staff member between two dates from the JSON DB.
  */
 async function getStaffAssignments({ staffName, from, to }) {
-  // Find staff by name
-  const staff = await prisma.staff.findFirst({ where: { name: staffName } });
+  // Fetch all staff and find matching name case-insensitively (SQLite workaround)
+  const allStaff = await prisma.staff.findMany();
+  const staff = allStaff.find(s => s.name.toLowerCase() === staffName.toLowerCase());
   if (!staff) {
     return [];
   }
