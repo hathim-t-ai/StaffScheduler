@@ -5,6 +5,7 @@ import { RootState } from '../store';
 import {
   ScheduleTask,
   setTasks,
+  addTask,
   navigateWeek
 } from '../store/slices/scheduleSlice';
 import { StaffMember } from '../store/slices/staffSlice';
@@ -370,42 +371,50 @@ export const useScheduleManager = (staffMembers: StaffMember[], projects: Projec
       handleCloseWeeklyDialog();
       return;
     }
-    // Get the week dates
+    // Get the week dates and prepare to append assignments without overwriting existing ones
     const isoDateStrings = weekDates.map(date => formatDateISO(date));
-    
-    // Remove existing assignments for this staff member for the week
-    const filteredTasks = scheduleTasks.filter(task => 
-      !(task.staffId === weeklyAssignStaffId && 
-        isoDateStrings.includes(task.date))
-    );
-    
-    // Create new tasks based on the hours allocation
     const newTasks: ScheduleTask[] = [];
-    
     for (let i = 0; i < isoDateStrings.length; i++) {
+      const dateStr = isoDateStrings[i];
+      const dayHours = hours[i];
       // Skip days with 0 hours
-      if (hours[i] === 0) continue;
-      
+      if (!dayHours) continue;
+      // Sum existing hours for this staff on this date
+      const existingHours = scheduleTasks
+        .filter(task => task.staffId === weeklyAssignStaffId && task.date === dateStr)
+        .reduce((sum, t) => sum + t.hours, 0);
+      // Skip if already fully assigned
+      if (existingHours >= 8) continue;
+      // Determine hours to assign without exceeding daily limit
+      const assignHours = Math.min(dayHours, 8 - existingHours);
+      if (assignHours <= 0) continue;
       newTasks.push({
         id: uuidv4(),
         staffId: weeklyAssignStaffId,
-        date: isoDateStrings[i],
+        date: dateStr,
         taskType: projectName,
-        hours: hours[i],
+        hours: assignHours,
         projectId: projects.find(p => p.name === projectName)?.id
       });
     }
-    
-    // Update the state
-    dispatch(setTasks([...filteredTasks, ...newTasks]));
-    
-    // Show notification
+    // Append new tasks without overwriting existing assignments
+    if (newTasks.length > 0) {
+      newTasks.forEach(task => dispatch(addTask(task)));
+    } else {
+      setNotification({
+        open: true,
+        message: 'No new assignments added; staff is fully booked or no hours specified for selected days',
+        severity: 'info'
+      });
+      handleCloseWeeklyDialog();
+      return;
+    }
+    // Show success notification
     setNotification({
       open: true,
       message: 'Weekly assignment applied successfully!',
       severity: 'success'
     });
-    
     // Close the dialog
     handleCloseWeeklyDialog();
   };
