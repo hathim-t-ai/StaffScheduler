@@ -1,12 +1,16 @@
+/* eslint-disable no-console */
 import React, { useState, useEffect } from 'react';
+// Import Material UI components
 import { Container, Box, Button, Dialog, DialogTitle, DialogContent, DialogActions, Typography, Paper } from '@mui/material';
+import DeleteIcon from '@mui/icons-material/Delete';
+
+// Import Redux and API utilities
 import { useSelector, useDispatch } from 'react-redux';
 import { RootState } from '../store';
-import NavigationBar from '../components/NavigationBar';
-import DeleteIcon from '@mui/icons-material/Delete';
 import axios from 'axios';
-import { setTasks } from '../store/slices/scheduleSlice';
 
+// Import app components
+import NavigationBar from '../components/NavigationBar';
 // Import schedule components
 import FilterSidebar from '../components/schedule/FilterSidebar';
 import ScheduleCalendar from '../components/schedule/ScheduleCalendar';
@@ -17,11 +21,10 @@ import ScheduleContextMenu from '../components/schedule/ScheduleContextMenu';
 import Notification from '../components/schedule/Notification';
 
 // Import hooks and types
-import { ContextMenuPosition, NotificationState } from '../components/schedule/types';
 import { useScheduleManager } from '../hooks/useScheduleManager';
-import { getDatesForCurrentWeek, isAtEndDate as checkIsAtEndDate } from '../utils/ScheduleUtils';
+import { isAtEndDate as checkIsAtEndDate } from '../utils/ScheduleUtils';
 import { StaffMember } from '../store/slices/staffSlice';
-import { clearSchedule, clearScheduleForStaff } from '../store/slices/scheduleSlice';
+import { clearSchedule, clearScheduleForStaff, setTasks } from '../store/slices/scheduleSlice';
 
 const SchedulingPage: React.FC = () => {
   const dispatch = useDispatch();
@@ -31,7 +34,14 @@ const SchedulingPage: React.FC = () => {
     const loadAssignments = async () => {
       try {
         const res = await axios.get('/api/assignments');
-        const tasks = res.data.map((a: any) => ({
+        const tasks = res.data.map((a: { 
+          id: string; 
+          staffId: string; 
+          date: string; 
+          projectName: string; 
+          hours: number; 
+          projectId: string;
+        }) => ({
           id: a.id,
           staffId: a.staffId,
           date: a.date,

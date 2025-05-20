@@ -1,8 +1,18 @@
 require('dotenv').config();
+// Startup sanity checks for required environment variables
+if (!process.env.OPENAI_API_KEY) {
+  console.error('Error: OPENAI_API_KEY environment variable is not set. Please add it to your .env file.');
+  process.exit(1);
+}
+if (!process.env.DATABASE_URL) {
+  console.error('Error: DATABASE_URL environment variable is not set. Please add it to your .env file.');
+  process.exit(1);
+}
 const express = require('express');
 const cors = require('cors');
 const OpenAI = require('openai');
-const { getStaffAssignments } = require('./chatFunctions');
+const chatFunctions = require('./chatFunctions');
+const { getStaffAssignments, getAllStaff, getProjectDetails, getTeamAvailability, getProductiveHours, getStaffProductiveHours } = chatFunctions;
 const prisma = require('./prismaClient');
 
 const app = express();
@@ -11,11 +21,78 @@ app.use(express.json());
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
+// Map function names to implementations for dynamic invocation
+const functionMapping = {
+  getStaffAssignments,
+  getAllStaff,
+  getProjectDetails,
+  getTeamAvailability,
+  getProductiveHours,
+  getStaffProductiveHours
+};
+
 // Define available functions for OpenAI function calling
 const functionDefinitions = [
   {
     name: 'getStaffAssignments',
     description: 'Get project assignments for a staff member between two dates',
+    parameters: {
+      type: 'object',
+      properties: {
+        staffName: { type: 'string' },
+        from: { type: 'string', format: 'date' },
+        to: { type: 'string', format: 'date' }
+      },
+      required: ['staffName', 'from', 'to']
+    }
+  },
+  {
+    name: 'getAllStaff',
+    description: 'Get list of all staff members with details',
+    parameters: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
+  {
+    name: 'getProjectDetails',
+    description: 'Get details for a project including total and remaining budgeted hours',
+    parameters: {
+      type: 'object',
+      properties: {
+        projectName: { type: 'string' }
+      },
+      required: ['projectName']
+    }
+  },
+  {
+    name: 'getTeamAvailability',
+    description: 'Get team availability between two dates (assigned vs available hours)',
+    parameters: {
+      type: 'object',
+      properties: {
+        from: { type: 'string', format: 'date' },
+        to: { type: 'string', format: 'date' }
+      },
+      required: ['from', 'to']
+    }
+  },
+  {
+    name: 'getProductiveHours',
+    description: 'Get total productive hours for all staff between two dates',
+    parameters: {
+      type: 'object',
+      properties: {
+        from: { type: 'string', format: 'date' },
+        to: { type: 'string', format: 'date' }
+      },
+      required: ['from', 'to']
+    }
+  },
+  {
+    name: 'getStaffProductiveHours',
+    description: 'Get productive hours for a staff member between two dates',
     parameters: {
       type: 'object',
       properties: {
@@ -108,7 +185,7 @@ app.post('/api/assignments', async (req, res) => {
   res.status(201).json(newAssignment);
 });
 
-// Chat endpoint
+// Basic chat endpoint - legacy support
 app.post('/api/chat', async (req, res) => {
   const { messages } = req.body;
   try {
@@ -131,9 +208,10 @@ app.post('/api/chat', async (req, res) => {
     if (message.function_call) {
       const { name, arguments: argsJson } = message.function_call;
       const args = JSON.parse(argsJson);
+      // Dynamically invoke the corresponding function
       let functionResult;
-      if (name === 'getStaffAssignments') {
-        functionResult = await getStaffAssignments(args);
+      if (functionMapping[name]) {
+        functionResult = await functionMapping[name](args);
       }
       // Send the function result back to the model
       const followUp = await openai.chat.completions.create({
@@ -158,6 +236,10 @@ app.post('/api/chat', async (req, res) => {
     res.status(500).json({ error: error.message || 'Chat service error' });
   }
 });
+
+// Import the enhanced AI chatbot routes
+const chatRoutes = require('./chatRoutes');
+app.use('/api', chatRoutes);
 
 const port = process.env.PORT || 5000;
 app.listen(port, () => console.log(`Chat server listening on port ${port}`)); 

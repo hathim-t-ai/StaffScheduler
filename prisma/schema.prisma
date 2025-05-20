@@ -39,6 +39,7 @@ model Assignment {
   projectId  String
   date       DateTime
   hours      Int
+  createdAt  DateTime @default(now())
   staff      Staff    @relation(fields: [staffId], references: [id])
   project    Project  @relation(fields: [projectId], references: [id])
 }
