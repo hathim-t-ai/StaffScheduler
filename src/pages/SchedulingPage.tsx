@@ -4,6 +4,8 @@ import { useSelector, useDispatch } from 'react-redux';
 import { RootState } from '../store';
 import NavigationBar from '../components/NavigationBar';
 import DeleteIcon from '@mui/icons-material/Delete';
+import axios from 'axios';
+import { setTasks } from '../store/slices/scheduleSlice';
 
 // Import schedule components
 import FilterSidebar from '../components/schedule/FilterSidebar';
@@ -23,6 +25,27 @@ import { clearSchedule, clearScheduleForStaff } from '../store/slices/scheduleSl
 
 const SchedulingPage: React.FC = () => {
   const dispatch = useDispatch();
+  
+  // Load assignments from backend
+  useEffect(() => {
+    const loadAssignments = async () => {
+      try {
+        const res = await axios.get('/api/assignments');
+        const tasks = res.data.map((a: any) => ({
+          id: a.id,
+          staffId: a.staffId,
+          date: a.date,
+          taskType: a.projectName,
+          hours: a.hours,
+          projectId: a.projectId,
+        }));
+        dispatch(setTasks(tasks));
+      } catch (err) {
+        console.error('Error loading assignments', err);
+      }
+    };
+    loadAssignments();
+  }, [dispatch]);
   
   // Get data from Redux store
   const staffMembers = useSelector((state: RootState) => state.staff.staffMembers);

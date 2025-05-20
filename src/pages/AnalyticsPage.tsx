@@ -136,6 +136,7 @@ const AnalyticsPage: React.FC = () => {
           ))}
           {timeframe !== 'overall' && (
             <Button
+              component="label"
               sx={{
                 position: 'relative',
                 bgcolor: '#fff',
@@ -169,7 +170,8 @@ const AnalyticsPage: React.FC = () => {
                   width: '100%',
                   height: '100%',
                   opacity: 0,
-                  cursor: 'pointer'
+                  cursor: 'pointer',
+                  zIndex: 1
                 }}
               />
             </Button>
@@ -250,12 +252,13 @@ const AnalyticsPage: React.FC = () => {
                     }}
                     options={{
                       maintainAspectRatio: false,
-                      layout: { padding: { top: 20 } },
+                      layout: { padding: { top: 40 } },
                       plugins: {
                         legend: { display: false },
                         datalabels: {
                           anchor: 'end',
                           align: 'end',
+                          clamp: true,
                           color: '#212121',
                           font: { weight: 'bold', size: 16 },
                           formatter: (v: number) => v.toLocaleString(),

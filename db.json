@@ -1,0 +1,22 @@
+{
+  "staff": [],
+  "projects": [],
+  "assignments": [
+    {
+      "id": "fe61177e-a101-4773-b8fe-93b00e8dc677",
+      "staffId": "2189b111-d98b-4240-8b36-341f4ddb158d",
+      "date": "2025-05-19",
+      "taskType": "Nebula",
+      "hours": 5,
+      "projectId": "789349ca-3342-4035-af78-a75f57d03a53"
+    },
+    {
+      "id": "f9bbed51-738c-4c03-85a5-5a5eaed25b05",
+      "staffId": "2189b111-d98b-4240-8b36-341f4ddb158d",
+      "date": "2025-05-19",
+      "taskType": "Vanguard",
+      "hours": 3,
+      "projectId": "c2fc462a-79a0-4d42-b535-cbe04a4a294d"
+    }
+  ]
+}

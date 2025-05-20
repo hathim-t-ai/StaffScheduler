@@ -12,6 +12,7 @@ import { StaffMember } from '../store/slices/staffSlice';
 import { Project } from '../store/slices/projectSlice';
 import { ContextMenuPosition, DragItem, NotificationState, StaffHours } from '../components/schedule/types';
 import { getDatesForCurrentWeek, formatDateISO } from '../utils/ScheduleUtils';
+import axios from 'axios';
 
 export const useScheduleManager = (staffMembers: StaffMember[], projects: Project[]) => {
   const dispatch = useDispatch();
@@ -126,7 +127,7 @@ export const useScheduleManager = (staffMembers: StaffMember[], projects: Projec
   };
   
   // Save and apply tasks from the drawer
-  const saveAndApply = () => {
+  const saveAndApply = async () => {
     // Validate total hours for the day before saving
     const totalHoursForDay = currentTasks.reduce((sum, t) => sum + t.hours, 0);
     if (totalHoursForDay > 8) {
@@ -145,6 +146,15 @@ export const useScheduleManager = (staffMembers: StaffMember[], projects: Projec
     // Add the current tasks to the state
     const newTasks = [...filteredTasks, ...currentTasks];
     dispatch(setTasks(newTasks));
+    
+    // Persist assignments to backend
+    for (const task of currentTasks) {
+      try {
+        await axios.post('/api/assignments', task);
+      } catch (err) {
+        console.error('Error saving assignment to backend:', err);
+      }
+    }
     
     // Show success notification
     setNotification({
@@ -360,7 +370,7 @@ export const useScheduleManager = (staffMembers: StaffMember[], projects: Projec
     setWeeklyAssignStaffId('');
   };
   
-  const applyWeeklyAssignment = (projectName: string, hours: number[]) => {
+  const applyWeeklyAssignment = async (projectName: string, hours: number[]) => {
     // Prevent any single-day assignment exceeding 8 hours
     if (hours.some(dayHours => dayHours > 8)) {
       setNotification({
@@ -397,9 +407,35 @@ export const useScheduleManager = (staffMembers: StaffMember[], projects: Projec
         projectId: projects.find(p => p.name === projectName)?.id
       });
     }
-    // Append new tasks without overwriting existing assignments
+    // Persist new tasks to backend and reload updated schedule
     if (newTasks.length > 0) {
-      newTasks.forEach(task => dispatch(addTask(task)));
+      try {
+        // Send all assignments to server
+        await Promise.all(newTasks.map(task =>
+          axios.post('/api/assignments', {
+            staffId: task.staffId,
+            projectId: task.projectId,
+            date: task.date,
+            hours: task.hours
+          })
+        ));
+        // Reload all assignments from backend for consistent state
+        const allRes = await axios.get('/api/assignments');
+        const allTasks: ScheduleTask[] = allRes.data.map((a: any) => ({
+          id: a.id,
+          staffId: a.staffId,
+          date: a.date,
+          taskType: a.projectName,
+          hours: a.hours,
+          projectId: a.projectId
+        }));
+        dispatch(setTasks(allTasks));
+      } catch (err) {
+        console.error('Error saving weekly assignments', err);
+        setNotification({ open: true, message: 'Failed to apply weekly assignment', severity: 'error' });
+        handleCloseWeeklyDialog();
+        return;
+      }
     } else {
       setNotification({
         open: true,
@@ -428,7 +464,7 @@ export const useScheduleManager = (staffMembers: StaffMember[], projects: Projec
     setBulkAssignDialogOpen(false);
   };
   
-  const applyBulkAssignments = (projectName: string, startDate: Date | null, staffHours: StaffHours[]) => {
+  const applyBulkAssignments = async (projectName: string, startDate: Date | null, staffHours: StaffHours[]) => {
     if (!startDate) return;
     
     // Remove staff with 0 hours
@@ -524,16 +560,41 @@ export const useScheduleManager = (staffMembers: StaffMember[], projects: Projec
       }
     }
     
-    // Update the state
-    dispatch(setTasks([...scheduleTasks, ...newTasks]));
-    
-    // Show notification
-    setNotification({
-      open: true,
-      message: 'Bulk assignment applied successfully!',
-      severity: 'success'
-    });
-    
+    // Persist new tasks to backend
+    try {
+      const created = await Promise.all(newTasks.map(async task => {
+        const res = await axios.post('/api/assignments', {
+          staffId: task.staffId,
+          projectId: task.projectId,
+          date: task.date,
+          hours: task.hours
+        });
+        return res.data;
+      }));
+      // Reload assignments from server
+      const allRes = await axios.get('/api/assignments');
+      const allTasks = allRes.data.map((a: any) => ({
+        id: a.id,
+        staffId: a.staffId,
+        date: a.date,
+        taskType: a.projectName,
+        hours: a.hours,
+        projectId: a.projectId
+      }));
+      dispatch(setTasks(allTasks));
+      setNotification({
+        open: true,
+        message: 'Bulk assignment applied successfully!',
+        severity: 'success'
+      });
+    } catch (err) {
+      console.error('Error saving bulk assignments', err);
+      setNotification({
+        open: true,
+        message: 'Failed to apply bulk assignments',
+        severity: 'error'
+      });
+    }
     // Close the dialog
     closeBulkAssignDialog();
   };

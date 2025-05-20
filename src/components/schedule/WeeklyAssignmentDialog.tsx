@@ -72,7 +72,7 @@ const WeeklyAssignmentDialog: React.FC<WeeklyAssignmentDialogProps> = ({
       }, 0)
     : 0;
   const budgetLeftAfterDraft = project ? project.budget - existingBudgetUsed - draftBudget : 0;
-  const canApply = Boolean(projectName && budgetLeftAfterDraft >= 0);
+  const canApply = Boolean(projectName);
   
   const handleApply = () => {
     onApply(projectName, hoursPerDay);

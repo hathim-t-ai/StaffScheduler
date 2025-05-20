@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import { RootState } from '../store';
 import { ColumnDefinition } from '../components/DataTable';
@@ -20,6 +20,7 @@ import {
   setProjects,
   updateProject
 } from '../store/slices/projectSlice';
+import axios from 'axios';
 
 export type SnackbarState = {
   open: boolean;
@@ -86,6 +87,23 @@ export const useAddPageManager = () => {
   const [editStaffMember, setEditStaffMember] = useState<StaffMember | null>(null);
   const [editProject, setEditProject] = useState<Project | null>(null);
 
+  // Load initial staff and project data from backend
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        const [staffRes, projRes] = await Promise.all([
+          axios.get('/api/staff'),
+          axios.get('/api/projects'),
+        ]);
+        dispatch(setStaffMembers(staffRes.data));
+        dispatch(setProjects(projRes.data));
+      } catch (err) {
+        console.error('Error loading initial data', err);
+      }
+    };
+    loadData();
+  }, [dispatch]);
+
   /**
    * Handles tab change between People and Projects
    * @param {React.SyntheticEvent} event - The tab change event
@@ -97,92 +115,46 @@ export const useAddPageManager = () => {
   };
 
   /**
-   * Adds a new staff member to the store
+   * Adds a new staff member to the store and backend
    * @param {StaffMember} newStaffMember - Staff member to add
    */
-  const handleAddStaffMember = (newStaffMember: StaffMember) => {
-    dispatch(addStaffMember(newStaffMember));
-    setSnackbar({
-      open: true,
-      message: 'Staff member added successfully',
-      severity: 'success'
-    });
+  const handleAddStaffMember = async (newStaffMember: StaffMember) => {
+    try {
+      const res = await axios.post('/api/staff', newStaffMember);
+      dispatch(addStaffMember(res.data));
+      setSnackbar({ open: true, message: 'Staff member added successfully', severity: 'success' });
+    } catch (err) {
+      console.error('Error adding staff', err);
+      setSnackbar({ open: true, message: 'Failed to add staff member', severity: 'error' });
+    }
   };
 
   /**
-   * Imports multiple staff members from an external file
-   * Handles merging with existing data and prevents duplicate IDs
-   * @param {StaffMember[]} newStaffMembers - Array of staff members to import
+   * Imports multiple staff members by sending to backend and reloading list
+   * Handles merging with existing data on the server
    */
-  const handleImportStaff = (newStaffMembers: StaffMember[]) => {
-    // Log incoming staff data
-    // console.log('Importing staff members:', newStaffMembers);
-    
-    // Create a map of existing staff by composite key (name-grade-department)
-    const existingStaffMap = new Map<string, number>();
-    
-    staffMembers.forEach((staff, index) => {
-      const key = `${staff.name.toLowerCase()}-${staff.grade.toLowerCase()}-${staff.department.toLowerCase()}`;
-      existingStaffMap.set(key, index);
-    });
-    
-    // Prepare the updated staff members list
-    const updatedStaffMembers = [...staffMembers];
-    const brandNewStaff: StaffMember[] = [];
-    
-    // Process each new staff member
-    newStaffMembers.forEach(newStaff => {
-      // console.log('Processing staff member:', newStaff.name, 'Skills:', newStaff.skills);
-      
-      // Normalize the skills data
-      if (newStaff.skills === undefined || newStaff.skills === null) {
-        newStaff.skills = [];
-      } else if (typeof newStaff.skills === 'string') {
-        // If skills is a string, convert to array
-        const skillsString = newStaff.skills as string;
-        newStaff.skills = skillsString.split(',').map(skill => skill.trim()).filter(Boolean);
-      } else if (!Array.isArray(newStaff.skills)) {
-        // If skills is not an array or string, convert to string and then array
-        const skillsString = String(newStaff.skills);
-        newStaff.skills = skillsString ? skillsString.split(',').map(skill => skill.trim()).filter(Boolean) : [];
-      }
-
-      // Log normalized skills
-      // console.log('After processing skills:', newStaff.skills);
-
-      const key = `${newStaff.name.toLowerCase()}-${newStaff.grade.toLowerCase()}-${newStaff.department.toLowerCase()}`;
-      
-      if (existingStaffMap.has(key)) {
-        // Overwrite existing staff record while preserving the original ID
-        const index = existingStaffMap.get(key) as number;
-        updatedStaffMembers[index] = {
-          ...newStaff,
-          id: updatedStaffMembers[index].id, // Preserve the original ID
-          skills: Array.isArray(newStaff.skills) ? newStaff.skills : [] // Ensure skills is an array
+  const handleImportStaff = async (newStaffMembers: StaffMember[]) => {
+    try {
+      // Send each staff member to backend
+      for (const ns of newStaffMembers) {
+        const payload = {
+          name: ns.name || '',
+          grade: ns.grade || '',
+          department: ns.department || '',
+          city: ns.city || '',
+          country: ns.country || '',
+          skills: Array.isArray(ns.skills) ? ns.skills.join(',') : ''
         };
-      } else {
-        // This is a brand new staff member
-        brandNewStaff.push({
-          ...newStaff,
-          skills: Array.isArray(newStaff.skills) ? newStaff.skills : [] // Ensure skills is an array
-        });
+        await axios.post('/api/staff', payload);
       }
-    });
-    
-    // Add all brand new staff members
-    const finalStaffMembers = [...updatedStaffMembers, ...brandNewStaff];
-    
-    // Log the final results
-    // console.log('Final staff members after import:', finalStaffMembers);
-    
-    // Update the store
-    dispatch(setStaffMembers(finalStaffMembers));
-    
-    setSnackbar({
-      open: true,
-      message: `Staff data imported successfully (${brandNewStaff.length} new, ${newStaffMembers.length - brandNewStaff.length} updated)`,
-      severity: 'success'
-    });
+      // Reload full staff list
+      const res = await axios.get('/api/staff');
+      dispatch(setStaffMembers(res.data));
+      setSnackbar({ open: true, message: `${newStaffMembers.length} staff imported successfully`, severity: 'success' });
+    } catch (err) {
+      console.error('Error importing staff', err);
+      setSnackbar({ open: true, message: 'Failed to import staff members', severity: 'error' });
+    }
   };
 
   /**
@@ -204,55 +176,55 @@ export const useAddPageManager = () => {
 
   /**
    * Completes the staff deletion after confirmation
-   * Dispatches the delete action and shows a success notification
    */
-  const confirmDeleteStaff = () => {
-    dispatch(deleteStaffMember(deleteStaffConfirmation.staffId));
-    
-    setSnackbar({
-      open: true,
-      message: `${deleteStaffConfirmation.staffName} was deleted successfully`,
-      severity: 'success'
-    });
-    
-    setDeleteStaffConfirmation({
-      open: false,
-      staffId: '',
-      staffName: ''
-    });
+  const confirmDeleteStaff = async () => {
+    try {
+      await axios.delete(`/api/staff/${deleteStaffConfirmation.staffId}`);
+      dispatch(deleteStaffMember(deleteStaffConfirmation.staffId));
+      setSnackbar({ open: true, message: `${deleteStaffConfirmation.staffName} was deleted successfully`, severity: 'success' });
+    } catch (err) {
+      console.error('Error deleting staff', err);
+      setSnackbar({ open: true, message: 'Failed to delete staff member', severity: 'error' });
+    }
+    setDeleteStaffConfirmation({ open: false, staffId: '', staffName: '' });
   };
 
   /**
-   * Adds a new project to the store
+   * Adds a new project to the store and backend
    * @param {Project} newProject - Project to add
    */
-  const handleAddProject = (newProject: Project) => {
-    dispatch(addProject(newProject));
-    setSnackbar({
-      open: true,
-      message: 'Project added successfully',
-      severity: 'success'
-    });
+  const handleAddProject = async (newProject: Project) => {
+    try {
+      const res = await axios.post('/api/projects', newProject);
+      dispatch(addProject(res.data));
+      setSnackbar({ open: true, message: 'Project added successfully', severity: 'success' });
+    } catch (err) {
+      console.error('Error adding project', err);
+      setSnackbar({ open: true, message: 'Failed to add project', severity: 'error' });
+    }
   };
 
   /**
-   * Imports multiple projects from an external file
-   * Handles merging with existing data and prevents duplicate IDs
-   * @param {Project[]} newProjects - Array of projects to import
+   * Imports multiple projects by sending to backend and reloading list
    */
-  const handleImportProjects = (newProjects: Project[]) => {
-    // Merge with existing projects, replacing any with duplicate IDs
-    const existingIds = new Set(projects.map(project => project.id));
-    const newProjectItems = newProjects.filter(project => !existingIds.has(project.id));
-    
-    const updatedProjects = [...projects, ...newProjectItems];
-    dispatch(setProjects(updatedProjects));
-    
-    setSnackbar({
-      open: true,
-      message: `${newProjects.length} projects imported successfully`,
-      severity: 'success'
-    });
+  const handleImportProjects = async (newProjects: Project[]) => {
+    try {
+      for (const np of newProjects) {
+        const payload = {
+          name: np.name || '',
+          partnerName: np.partnerName || '',
+          teamLead: np.teamLead || '',
+          budget: np.budget || 0
+        };
+        await axios.post('/api/projects', payload);
+      }
+      const res = await axios.get('/api/projects');
+      dispatch(setProjects(res.data));
+      setSnackbar({ open: true, message: `${newProjects.length} projects imported successfully`, severity: 'success' });
+    } catch (err) {
+      console.error('Error importing projects', err);
+      setSnackbar({ open: true, message: 'Failed to import projects', severity: 'error' });
+    }
   };
 
   /**
@@ -274,22 +246,17 @@ export const useAddPageManager = () => {
 
   /**
    * Completes the project deletion after confirmation
-   * Dispatches the delete action and shows a success notification
    */
-  const confirmDeleteProject = () => {
-    dispatch(deleteProject(deleteProjectConfirmation.projectId));
-    
-    setSnackbar({
-      open: true,
-      message: `${deleteProjectConfirmation.projectName} was deleted successfully`,
-      severity: 'success'
-    });
-    
-    setDeleteProjectConfirmation({
-      open: false,
-      projectId: '',
-      projectName: ''
-    });
+  const confirmDeleteProject = async () => {
+    try {
+      await axios.delete(`/api/projects/${deleteProjectConfirmation.projectId}`);
+      dispatch(deleteProject(deleteProjectConfirmation.projectId));
+      setSnackbar({ open: true, message: `${deleteProjectConfirmation.projectName} was deleted successfully`, severity: 'success' });
+    } catch (err) {
+      console.error('Error deleting project', err);
+      setSnackbar({ open: true, message: 'Failed to delete project', severity: 'error' });
+    }
+    setDeleteProjectConfirmation({ open: false, projectId: '', projectName: '' });
   };
 
   /**
@@ -442,40 +409,52 @@ export const useAddPageManager = () => {
    * Handles the deletion of multiple staff members at once
    * @param {string[]} staffIds - Array of staff IDs to delete
    */
-  const handleDeleteMultipleStaffRows = (staffIds: string[]) => {
+  const handleDeleteMultipleStaffRows = async (staffIds: string[]) => {
     if (!staffIds.length) return;
-    
-    // Delete each staff member
-    staffIds.forEach(id => {
-      dispatch(deleteStaffMember(id));
-    });
-    
-    // Show success message
-    setSnackbar({
-      open: true,
-      message: `${staffIds.length} staff member${staffIds.length > 1 ? 's' : ''} deleted successfully`,
-      severity: 'success'
-    });
+    try {
+      // Delete each staff member on the server
+      await Promise.all(staffIds.map(id => axios.delete(`/api/staff/${id}`)));
+      // Remove from client store
+      staffIds.forEach(id => dispatch(deleteStaffMember(id)));
+      setSnackbar({
+        open: true,
+        message: `${staffIds.length} staff member${staffIds.length > 1 ? 's' : ''} deleted successfully`,
+        severity: 'success'
+      });
+    } catch (err) {
+      console.error('Error deleting multiple staff', err);
+      setSnackbar({
+        open: true,
+        message: 'Failed to delete staff members',
+        severity: 'error'
+      });
+    }
   };
 
   /**
    * Handles the deletion of multiple projects at once
    * @param {string[]} projectIds - Array of project IDs to delete
    */
-  const handleDeleteMultipleProjectRows = (projectIds: string[]) => {
+  const handleDeleteMultipleProjectRows = async (projectIds: string[]) => {
     if (!projectIds.length) return;
-    
-    // Delete each project
-    projectIds.forEach(id => {
-      dispatch(deleteProject(id));
-    });
-    
-    // Show success message
-    setSnackbar({
-      open: true,
-      message: `${projectIds.length} project${projectIds.length > 1 ? 's' : ''} deleted successfully`,
-      severity: 'success'
-    });
+    try {
+      // Delete each project on the server
+      await Promise.all(projectIds.map(id => axios.delete(`/api/projects/${id}`)));
+      // Remove from client store
+      projectIds.forEach(id => dispatch(deleteProject(id)));
+      setSnackbar({
+        open: true,
+        message: `${projectIds.length} project${projectIds.length > 1 ? 's' : ''} deleted successfully`,
+        severity: 'success'
+      });
+    } catch (err) {
+      console.error('Error deleting multiple projects', err);
+      setSnackbar({
+        open: true,
+        message: 'Failed to delete projects',
+        severity: 'error'
+      });
+    }
   };
 
   /**
@@ -491,12 +470,18 @@ export const useAddPageManager = () => {
   };
   
   /**
-   * Updates an existing staff member
+   * Updates an existing staff member in the store and backend
    * @param updated - Updated staff member data
    */
-  const handleUpdateStaffMember = (updated: StaffMember) => {
-    dispatch(updateStaffMember(updated));
-    setSnackbar({ open: true, message: 'Staff member updated successfully', severity: 'success' });
+  const handleUpdateStaffMember = async (updated: StaffMember) => {
+    try {
+      const res = await axios.put(`/api/staff/${updated.id}`, updated);
+      dispatch(updateStaffMember(res.data));
+      setSnackbar({ open: true, message: 'Staff member updated successfully', severity: 'success' });
+    } catch (err) {
+      console.error('Error updating staff', err);
+      setSnackbar({ open: true, message: 'Failed to update staff member', severity: 'error' });
+    }
     setEditStaffMember(null);
   };
   
@@ -513,12 +498,18 @@ export const useAddPageManager = () => {
   };
   
   /**
-   * Updates an existing project
+   * Updates an existing project in the store and backend
    * @param updated - Updated project data
    */
-  const handleUpdateProject = (updated: Project) => {
-    dispatch(updateProject(updated));
-    setSnackbar({ open: true, message: 'Project updated successfully', severity: 'success' });
+  const handleUpdateProject = async (updated: Project) => {
+    try {
+      const res = await axios.put(`/api/projects/${updated.id}`, updated);
+      dispatch(updateProject(res.data));
+      setSnackbar({ open: true, message: 'Project updated successfully', severity: 'success' });
+    } catch (err) {
+      console.error('Error updating project', err);
+      setSnackbar({ open: true, message: 'Failed to update project', severity: 'error' });
+    }
     setEditProject(null);
   };
 

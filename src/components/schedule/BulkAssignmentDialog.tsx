@@ -95,7 +95,8 @@ const BulkAssignmentDialog: React.FC<BulkAssignmentDialogProps> = ({
       }, 0)
     : 0;
   const budgetLeftAfterDraft = project ? project.budget - existingBudgetUsed - draftBudget : 0;
-  const canApply = Boolean(projectName && startDate && budgetLeftAfterDraft >= 0);
+  // Allow applying bulk assignments when project and start date are selected
+  const canApply = Boolean(projectName && startDate);
   
   const handleStaffHoursChange = (staffId: string, hours: number) => {
     setStaffHours(prevHours => 
