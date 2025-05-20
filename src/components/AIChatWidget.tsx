@@ -35,7 +35,9 @@ import {
   Schedule as ScheduleIcon,
   History as HistoryIcon,
   QuestionAnswer as AskIcon,
-  Build as AgentIcon
+  Build as AgentIcon,
+  Add as AddIcon,
+  Refresh as RefreshIcon
 } from '@mui/icons-material';
 
 // Utility imports
@@ -233,6 +235,48 @@ const AIChatWidget: React.FC = () => {
   
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
+  // Load chat history from localStorage on component mount
+  useEffect(() => {
+    const savedMessages = localStorage.getItem('chatHistory');
+    if (savedMessages && JSON.parse(savedMessages).length > 0) {
+      try {
+        // We need to convert the saved string timestamps back to Date objects
+        const parsedMessages = JSON.parse(savedMessages)
+          .map((msg: any) => ({
+            ...msg,
+            timestamp: new Date(msg.timestamp)
+          }));
+        setMessages(parsedMessages);
+      } catch (error) {
+        console.error('Error parsing saved chat history:', error);
+        // If there's an error, initialize with the welcome message
+        setMessages([
+          {
+            sender: 'ai',
+            text: 'Hi there! I can help you with staff scheduling, project details, or generate an optimal schedule. What would you like to know?',
+            timestamp: new Date()
+          }
+        ]);
+      }
+    } else {
+      // Add welcome message when chat first opens and no history exists
+      setMessages([
+        {
+          sender: 'ai',
+          text: 'Hi there! I can help you with staff scheduling, project details, or generate an optimal schedule. What would you like to know?',
+          timestamp: new Date()
+        }
+      ]);
+    }
+  }, []);
+
+  // Save chat history to localStorage whenever messages change
+  useEffect(() => {
+    if (messages.length > 0) {
+      localStorage.setItem('chatHistory', JSON.stringify(messages));
+    }
+  }, [messages]);
+
   // Load staff and projects
   useEffect(() => {
     const fetchData = async () => {
@@ -249,19 +293,6 @@ const AIChatWidget: React.FC = () => {
     
     fetchData();
   }, []);
-
-  // Add welcome message when chat first opens
-  useEffect(() => {
-    if (messages.length === 0) {
-      setMessages([
-        {
-          sender: 'ai',
-          text: 'Hi there! I can help you with staff scheduling, project details, or generate an optimal schedule. What would you like to know?',
-          timestamp: new Date()
-        }
-      ]);
-    }
-  }, [messages]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -288,6 +319,23 @@ const AIChatWidget: React.FC = () => {
       }
     ]);
     handleMenuClose();
+  };
+  
+  const startNewChat = () => {
+    localStorage.removeItem('chatHistory');
+    setMessages([
+      {
+        sender: 'ai',
+        text: 'Started a new chat. How can I help you today?',
+        timestamp: new Date()
+      }
+    ]);
+    handleMenuClose();
+  };
+
+  const refreshCalendar = () => {
+    const event = new CustomEvent('refreshCalendar', { detail: { preserveCurrentDate: true } });
+    window.dispatchEvent(event);
   };
 
   const sendMessage = async () => {
@@ -394,6 +442,9 @@ const AIChatWidget: React.FC = () => {
                   responseText += `\n  • ${error}`;
                 });
               }
+              
+              // Refresh the calendar after a successful scheduling action
+              setTimeout(() => refreshCalendar(), 100);
             } else if (result.action === 'unschedule') {
               // Format unschedule response
               if (result.details.deletedAssignments && result.details.deletedAssignments.length > 0) {
@@ -413,6 +464,9 @@ const AIChatWidget: React.FC = () => {
                   });
                 });
               }
+              
+              // Refresh the calendar after a successful unscheduling action
+              setTimeout(() => refreshCalendar(), 100);
             }
           }
         } else {
@@ -595,13 +649,17 @@ const AIChatWidget: React.FC = () => {
             flexDirection: 'column',
             borderRadius: 2
           }}>
-            <Box sx={{ 
-              p: 1, 
-              bgcolor: 'primary.main', 
-              display: 'flex', 
-              justifyContent: 'space-between', 
-              alignItems: 'center' 
-            }}>
+            <Box
+              onClick={() => setOpen(false)}
+              sx={{
+                p: 1,
+                bgcolor: 'primary.main',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                cursor: 'pointer'
+              }}
+            >
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                 <AIIcon sx={{ color: 'white' }} />
                 <Typography variant="subtitle1" color="white">
@@ -610,9 +668,9 @@ const AIChatWidget: React.FC = () => {
               </Box>
               
               <Box>
-                <IconButton 
-                  size="small" 
-                  onClick={handleMenuOpen}
+                <IconButton
+                  size="small"
+                  onClick={(e) => { e.stopPropagation(); handleMenuOpen(e); }}
                   sx={{ color: 'white' }}
                 >
                   <MoreVertIcon />
@@ -621,6 +679,7 @@ const AIChatWidget: React.FC = () => {
                   anchorEl={menuAnchorEl}
                   open={Boolean(menuAnchorEl)}
                   onClose={handleMenuClose}
+                  PaperProps={{ sx: { bgcolor: 'common.white', color: 'text.primary' } }}
                 >
                   <MenuItem onClick={() => {
                     setSchedulingOpen(true);
@@ -629,15 +688,26 @@ const AIChatWidget: React.FC = () => {
                     <ScheduleIcon fontSize="small" sx={{ mr: 1 }} />
                     Schedule Project
                   </MenuItem>
+                  <MenuItem onClick={startNewChat}>
+                    <AddIcon fontSize="small" sx={{ mr: 1 }} />
+                    New Chat
+                  </MenuItem>
                   <MenuItem onClick={clearChat}>
                     <HistoryIcon fontSize="small" sx={{ mr: 1 }} />
                     Clear Chat
                   </MenuItem>
+                  <MenuItem onClick={() => {
+                    refreshCalendar();
+                    handleMenuClose();
+                  }}>
+                    <RefreshIcon fontSize="small" sx={{ mr: 1 }} />
+                    Refresh Calendar
+                  </MenuItem>
                 </Menu>
                 
-                <IconButton 
-                  size="small" 
-                  onClick={() => setOpen(false)} 
+                <IconButton
+                  size="small"
+                  onClick={(e) => { e.stopPropagation(); setOpen(false); }}
                   sx={{ color: 'white' }}
                 >
                   <CloseIcon />

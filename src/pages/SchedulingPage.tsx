@@ -1,5 +1,5 @@
 /* eslint-disable no-console */
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 // Import Material UI components
 import { Container, Box, Button, Dialog, DialogTitle, DialogContent, DialogActions, Typography, Paper } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
@@ -29,33 +29,36 @@ import { clearSchedule, clearScheduleForStaff, setTasks } from '../store/slices/
 const SchedulingPage: React.FC = () => {
   const dispatch = useDispatch();
   
-  // Load assignments from backend
-  useEffect(() => {
-    const loadAssignments = async () => {
-      try {
-        const res = await axios.get('/api/assignments');
-        const tasks = res.data.map((a: { 
-          id: string; 
-          staffId: string; 
-          date: string; 
-          projectName: string; 
-          hours: number; 
-          projectId: string;
-        }) => ({
-          id: a.id,
-          staffId: a.staffId,
-          date: a.date,
-          taskType: a.projectName,
-          hours: a.hours,
-          projectId: a.projectId,
-        }));
-        dispatch(setTasks(tasks));
-      } catch (err) {
-        console.error('Error loading assignments', err);
-      }
-    };
-    loadAssignments();
+  // Function to load assignments from backend
+  const loadAssignments = useCallback(async () => {
+    try {
+      const res = await axios.get('/api/assignments');
+      const tasks = res.data.map((a: { id: string; staffId: string; date: string; projectName: string; hours: number; projectId: string; }) => ({
+        id: a.id,
+        staffId: a.staffId,
+        date: a.date,
+        taskType: a.projectName,
+        hours: a.hours,
+        projectId: a.projectId,
+      }));
+      dispatch(setTasks(tasks));
+    } catch (err) {
+      console.error('Error loading assignments', err);
+    }
   }, [dispatch]);
+
+  // Load assignments on mount
+  useEffect(() => {
+    loadAssignments();
+  }, [loadAssignments]);
+
+  // Refresh assignments when calendar requests a refresh
+  useEffect(() => {
+    window.addEventListener('refreshCalendar', loadAssignments);
+    return () => {
+      window.removeEventListener('refreshCalendar', loadAssignments);
+    };
+  }, [loadAssignments]);
   
   // Get data from Redux store
   const staffMembers = useSelector((state: RootState) => state.staff.staffMembers);
