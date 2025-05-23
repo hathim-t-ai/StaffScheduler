@@ -1,20 +1,97 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Box, IconButton, TextField, Paper, Typography } from '@mui/material';
+import { 
+  Box, 
+  IconButton, 
+  TextField, 
+  Paper, 
+  Typography, 
+  CircularProgress,
+  Chip,
+  Button,
+  Divider,
+  Avatar,
+  Autocomplete,
+  Tooltip
+} from '@mui/material';
+import ToggleButton from '@mui/material/ToggleButton';
+import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import SendIcon from '@mui/icons-material/Send';
 import ChatIcon from '@mui/icons-material/Chat';
 import CloseIcon from '@mui/icons-material/Close';
+import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
+import ManageAccountsIcon from '@mui/icons-material/ManageAccounts';
+import FolderIcon from '@mui/icons-material/Folder';
+import { DatePicker } from '@mui/x-date-pickers/DatePicker';
+import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
+import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
+import format from 'date-fns/format';
 import axios from 'axios';
 
 interface Message {
   sender: 'user' | 'bot';
   text: string;
+  type?: 'text' | 'json' | 'schedule_result';
+  timestamp: Date;
+}
+
+interface StaffMember {
+  id: string;
+  name: string;
+  department?: string;
+}
+
+interface Project {
+  id: string;
+  name: string;
+  partnerName?: string;
+}
+
+interface MatchResult {
+  staffId: string;
+  staffName?: string;
+  assignedHours: number;
+  date?: string;
 }
 
 const ChatWidget: React.FC = () => {
-  const [open, setOpen] = useState(true);
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [open, setOpen] = useState(false);
+  const [messages, setMessages] = useState<Message[]>([
+    { 
+      sender: 'bot', 
+      text: 'Hello! I\'m your Staff Scheduling Assistant. I can help you with information about staff, projects, and schedules, or assist you with scheduling tasks. How can I help you today?', 
+      timestamp: new Date(),
+      type: 'text'
+    }
+  ]);
   const [input, setInput] = useState('');
+  const [mode, setMode] = useState<'ask' | 'agent'>('ask');
+  const [loading, setLoading] = useState(false);
+  const [selectedDate, setSelectedDate] = useState<Date | null>(new Date());
+  const [selectedStaff, setSelectedStaff] = useState<StaffMember[]>([]);
+  const [selectedProjects, setSelectedProjects] = useState<Project[]>([]);
+  const [staffList, setStaffList] = useState<StaffMember[]>([]);
+  const [projectList, setProjectList] = useState<Project[]>([]);
+  const [hours, setHours] = useState<number>(8);
+  
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+
+  // Load staff and projects on initial render
+  useEffect(() => {
+    fetchStaffAndProjects();
+  }, []);
+
+  const fetchStaffAndProjects = async () => {
+    try {
+      const [staffResponse, projectsResponse] = await Promise.all([
+        axios.get('/api/staff'),
+        axios.get('/api/projects')
+      ]);
+      setStaffList(staffResponse.data);
+      setProjectList(projectsResponse.data);
+    } catch (error) {
+      console.error('Failed to fetch data:', error);
+    }
+  };
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -24,79 +101,499 @@ const ChatWidget: React.FC = () => {
     scrollToBottom();
   }, [messages]);
 
+  const handleModeChange = (_event: React.MouseEvent<HTMLElement>, newMode: 'ask' | 'agent' | null) => {
+    if (newMode !== null) {
+      setMode(newMode);
+      // Add a system message when mode changes
+      const modeChangeMessage = newMode === 'ask' 
+        ? "I'm now in Ask mode. You can ask me questions about staff, projects, and schedules."
+        : "I'm now in Agent mode. You can instruct me to book staff onto projects using natural language commands.";
+      
+      setMessages(prev => [
+        ...prev, 
+        { 
+          sender: 'bot', 
+          text: modeChangeMessage, 
+          timestamp: new Date(),
+          type: 'text'
+        }
+      ]);
+    }
+  };
+
+  const formatJsonOutput = (jsonString: string) => {
+    try {
+      const parsed = JSON.parse(jsonString);
+      return (
+        <pre style={{ 
+          maxHeight: '200px', 
+          overflow: 'auto', 
+          whiteSpace: 'pre-wrap',
+          backgroundColor: '#f5f5f5',
+          padding: '8px',
+          borderRadius: '4px',
+          fontSize: '0.8rem'
+        }}>
+          {JSON.stringify(parsed, null, 2)}
+        </pre>
+      );
+    } catch {
+      return jsonString;
+    }
+  };
+
   const sendMessage = async () => {
     if (!input.trim()) return;
-    const userMsg: Message = { sender: 'user', text: input };
-    setMessages((prev) => [...prev, userMsg]);
+
+    const userMsg: Message = { 
+      sender: 'user', 
+      text: input,
+      timestamp: new Date()
+    };
+    
+    setMessages(prev => [...prev, userMsg]);
     setInput('');
+    setLoading(true);
 
     try {
-      const res = await axios.post('http://localhost:5000/api/chat', { messages: [...messages, userMsg] });
-      const botText = res.data.response.content;
-      const botMsg: Message = { sender: 'bot', text: botText };
-      setMessages((prev) => [...prev, botMsg]);
-      scrollToBottom();
+      const endpoint = mode === 'ask'
+        ? '/api/ask'
+        : '/api/orchestrate';
+
+      let payload;
+      
+      if (mode === 'ask') {
+        payload = { 
+          query: input,
+          mode: 'ask'
+        };
+      } else {
+        payload = {
+          query: input,
+          mode: 'agent'
+        };
+      }
+      
+      const res = await axios.post(endpoint, payload);
+      
+      // Process the response appropriately based on mode
+      let botText = '';
+      let messageType: 'text' | 'json' | 'schedule_result' = 'text';
+      
+      if (mode === 'ask') {
+        if (typeof res.data.content === 'string') {
+          botText = res.data.content;
+          messageType = res.data.type || 'text';
+        } else {
+          botText = JSON.stringify(res.data);
+          messageType = 'json';
+        }
+      } else {
+        // Format scheduling results in a user-friendly way
+        if (res.data.resolvedMatches) {
+          const matchCount = res.data.resolvedMatches.length;
+          botText = `✅ Successfully scheduled ${matchCount} assignment${matchCount !== 1 ? 's' : ''}.\n\n`;
+          
+          res.data.resolvedMatches.forEach((match: MatchResult) => {
+            const staffName = match.staffName || 'Staff';
+            botText += `• ${staffName}: ${match.assignedHours} hour${match.assignedHours !== 1 ? 's' : ''} on ${match.date || 'the selected date'}\n`;
+          });
+          
+          messageType = 'schedule_result';
+        } else {
+          botText = JSON.stringify(res.data);
+          messageType = 'json';
+        }
+      }
+      
+      const botMsg: Message = { 
+        sender: 'bot', 
+        text: botText,
+        timestamp: new Date(),
+        type: messageType
+      };
+      
+      setMessages(prev => [...prev, botMsg]);
+      
+      // 🚀 AUTO-REFRESH SCHEDULE: Trigger calendar refresh if booking was successful
+      if ((res.data.resolvedMatches && res.data.resolvedMatches.length > 0) || res.data.booking) {
+        console.log('🔄 Booking successful! Refreshing schedule page...');
+        // Dispatch custom event to refresh the schedule calendar
+        window.dispatchEvent(new CustomEvent('refreshCalendar'));
+      }
+      
+      // Clear selections after successful scheduling
+      if (mode === 'agent') {
+        // Keep the same staff and projects selected for convenience
+        // in case the user wants to schedule them again
+      }
+      
     } catch (err) {
       console.error(err);
-      const errorMsg: Message = { sender: 'bot', text: 'Error connecting to chat service.' };
-      setMessages((prev) => [...prev, errorMsg]);
+      let errorMessage = 'Error connecting to service.';
+      let isServiceStarting = false;
+      
+      if (axios.isAxiosError(err) && err.response?.data) {
+        const responseData = err.response.data;
+        errorMessage = `Error: ${responseData.error || 'Unknown error'}`;
+        
+        if (responseData.details) {
+          errorMessage += `\n${responseData.details}`;
+        }
+        
+        // Check if it's the specific error about orchestrator service starting up
+        if (responseData.retryable && responseData.error === 'Orchestrator service starting') {
+          isServiceStarting = true;
+          errorMessage = `The chatbot service is starting up. I'll try again in a few seconds...`;
+        }
+      }
+      
+      const errorMsg: Message = { 
+        sender: 'bot', 
+        text: errorMessage,
+        timestamp: new Date(),
+        type: 'text'
+      };
+      
+      setMessages(prev => [...prev, errorMsg]);
+      
+      // If the service is starting up, retry after a delay
+      if (isServiceStarting) {
+        setTimeout(() => {
+          const retryMsg: Message = {
+            sender: 'bot',
+            text: 'Retrying your request...',
+            timestamp: new Date(),
+            type: 'text'
+          };
+          
+          setMessages(prev => [...prev, retryMsg]);
+          
+          // Resend the same message
+          const originalPayload = mode === 'ask' 
+            ? { query: input, mode: 'ask' } 
+            : {
+                query: input,
+                mode: 'agent'
+              };
+          
+          const retryEndpoint = originalPayload.mode === 'ask'
+            ? '/api/ask'
+            : '/api/orchestrate';
+          axios.post(retryEndpoint, originalPayload)
+            .then(res => {
+              // Process the response appropriately based on mode
+              let botText = '';
+              let messageType: 'text' | 'json' | 'schedule_result' = 'text';
+              
+              if (mode === 'ask') {
+                if (typeof res.data.content === 'string') {
+                  botText = res.data.content;
+                  messageType = res.data.type || 'text';
+                } else {
+                  botText = JSON.stringify(res.data);
+                  messageType = 'json';
+                }
+              } else {
+                // Format scheduling results in a user-friendly way
+                if (res.data.resolvedMatches) {
+                  const matchCount = res.data.resolvedMatches.length;
+                  botText = `✅ Successfully scheduled ${matchCount} assignment${matchCount !== 1 ? 's' : ''}.\n\n`;
+                  
+                  res.data.resolvedMatches.forEach((match: MatchResult) => {
+                    const staffName = match.staffName || 'Staff';
+                    botText += `• ${staffName}: ${match.assignedHours} hour${match.assignedHours !== 1 ? 's' : ''} on ${match.date || 'the selected date'}\n`;
+                  });
+                  
+                  messageType = 'schedule_result';
+                } else {
+                  botText = JSON.stringify(res.data);
+                  messageType = 'json';
+                }
+              }
+              
+              const botMsg: Message = { 
+                sender: 'bot', 
+                text: botText,
+                timestamp: new Date(),
+                type: messageType
+              };
+              
+              setMessages(prev => [...prev, botMsg]);
+              
+              // 🚀 AUTO-REFRESH SCHEDULE: Trigger calendar refresh if booking was successful (retry path)
+              if ((res.data.resolvedMatches && res.data.resolvedMatches.length > 0) || res.data.booking) {
+                console.log('🔄 Booking successful on retry! Refreshing schedule page...');
+                // Dispatch custom event to refresh the schedule calendar
+                window.dispatchEvent(new CustomEvent('refreshCalendar'));
+              }
+              
+              setLoading(false);
+              scrollToBottom();
+            })
+            .catch(() => {
+              // Stop retrying after one attempt
+              const failedRetryMsg: Message = {
+                sender: 'bot',
+                text: 'The chatbot service is still starting up. Please try again in a minute.',
+                timestamp: new Date(),
+                type: 'text'
+              };
+              
+              setMessages(prev => [...prev, failedRetryMsg]);
+              setLoading(false);
+              scrollToBottom();
+            });
+        }, 5000); // Wait 5 seconds before retrying
+      } else {
+        setLoading(false);
+        scrollToBottom();
+      }
+    } finally {
+      // The finally block runs regardless of whether there was an error
+      // We don't need to check err here as it may not be defined if no error occurred
+      setLoading(false);
       scrollToBottom();
     }
+  };
+
+  const renderMessage = (message: Message, index: number) => {
+    const isUser = message.sender === 'user';
+    const messageTime = format(message.timestamp, 'h:mm a');
+    
+    return (
+      <Box 
+        key={index} 
+        sx={{ 
+          my: 1.5, 
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: isUser ? 'flex-end' : 'flex-start'
+        }}
+      >
+        <Box sx={{ 
+          display: 'flex', 
+          alignItems: 'flex-start',
+          flexDirection: isUser ? 'row-reverse' : 'row'
+        }}>
+          <Avatar 
+            sx={{ 
+              width: 32, 
+              height: 32, 
+              mr: isUser ? 0 : 1, 
+              ml: isUser ? 1 : 0,
+              bgcolor: isUser ? 'secondary.main' : 'primary.main' 
+            }}
+          >
+            {isUser ? 'U' : 'A'}
+          </Avatar>
+          <Paper
+            elevation={1}
+            sx={{
+              p: 1.5,
+              maxWidth: '85%',
+              borderRadius: 2,
+              bgcolor: isUser ? 'secondary.light' : 'grey.100',
+              color: isUser ? 'white' : 'text.primary',
+            }}
+          >
+            {message.type === 'json' ? (
+              formatJsonOutput(message.text)
+            ) : message.type === 'schedule_result' ? (
+              <Typography 
+                variant="body2" 
+                component="div" 
+                sx={{ 
+                  whiteSpace: 'pre-line'
+                }}
+              >
+                {message.text}
+              </Typography>
+            ) : (
+              <Typography variant="body2">{message.text}</Typography>
+            )}
+          </Paper>
+        </Box>
+        <Typography 
+          variant="caption" 
+          sx={{ 
+            color: 'text.secondary', 
+            mt: 0.5,
+            mr: isUser ? 1 : 0,
+            ml: isUser ? 0 : 1
+          }}
+        >
+          {messageTime}
+        </Typography>
+      </Box>
+    );
   };
 
   return (
     <>
       {!open && (
-        <IconButton
-          onClick={() => setOpen(true)}
-          sx={{ position: 'fixed', bottom: 20, right: 20, bgcolor: 'primary.main', color: 'white', zIndex: 1300 }}
-        >
-          <ChatIcon />
-        </IconButton>
+        <Tooltip title="Open Staff Scheduler Chat Assistant">
+          <IconButton
+            onClick={() => setOpen(true)}
+            sx={{ 
+              position: 'fixed', 
+              bottom: 20, 
+              right: 20, 
+              bgcolor: 'primary.main', 
+              color: 'white', 
+              zIndex: 1300,
+              height: 56,
+              width: 56,
+              '&:hover': {
+                bgcolor: 'primary.dark',
+              }
+            }}
+          >
+            <ChatIcon fontSize="medium" />
+          </IconButton>
+        </Tooltip>
       )}
       {open && (
-        <Box sx={{ position: 'fixed', bottom: 20, right: 20, width: 300, height: 400, zIndex: 1300 }}>
-          <Paper elevation={3} sx={{ bgcolor: 'white', color: 'black', height: '100%', display: 'flex', flexDirection: 'column' }}>
-            <Box sx={{ p: 1, bgcolor: 'primary.main', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Typography variant="subtitle1" color="white">
-                Chatbot
+        <Box 
+          sx={{ 
+            position: 'fixed', 
+            bottom: 20, 
+            right: 20, 
+            width: 360, 
+            height: 600, 
+            zIndex: 1300,
+            boxShadow: 10,
+            borderRadius: 2,
+            overflow: 'hidden'
+          }}
+        >
+          <Paper 
+            elevation={0} 
+            sx={{ 
+              bgcolor: 'white', 
+              color: 'black', 
+              height: '100%', 
+              display: 'flex', 
+              flexDirection: 'column'
+            }}
+          >
+            <Box 
+              sx={{ 
+                p: 2, 
+                bgcolor: 'primary.main', 
+                color: 'white',
+                display: 'flex', 
+                justifyContent: 'space-between', 
+                alignItems: 'center'
+              }}
+            >
+              <Typography variant="h6" sx={{ fontWeight: 'bold', flexGrow: 1 }}>
+                Staff Scheduler Assistant
               </Typography>
               <IconButton size="small" onClick={() => setOpen(false)} sx={{ color: 'white' }}>
                 <CloseIcon />
               </IconButton>
             </Box>
-            <Box sx={{ flex: 1, p: 1, overflowY: 'auto' }}>
-              {messages.map((m, idx) => (
-                <Box key={idx} sx={{ my: 1, textAlign: m.sender === 'user' ? 'right' : 'left' }}>
-                  <Paper
-                    sx={{
-                      display: 'inline-block',
-                      p: 1,
-                      bgcolor: m.sender === 'user' ? 'secondary.main' : 'grey.200',
-                      color: m.sender === 'user' ? 'white' : 'black',
-                    }}
-                  >
-                    <Typography variant="body2">{m.text}</Typography>
-                  </Paper>
-                </Box>
-              ))}
-              <div ref={messagesEndRef} />
-            </Box>
-            <Box sx={{ p: 1, display: 'flex', alignItems: 'center' }}>
-              <TextField
-                variant="outlined"
+            
+            <Box sx={{ px: 2, py: 1.5, bgcolor: 'grey.100' }}>
+              <ToggleButtonGroup
+                value={mode}
+                exclusive
+                onChange={handleModeChange}
                 size="small"
                 fullWidth
-                sx={{ bgcolor: 'white', color: 'black' }}
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyPress={(e) => {
-                  if (e.key === 'Enter') sendMessage();
-                }}
-              />
-              <IconButton color="primary" onClick={sendMessage}>
-                <SendIcon />
-              </IconButton>
+                sx={{ mb: 0 }}
+              >
+                <ToggleButton 
+                  value="ask" 
+                  sx={{ 
+                    py: 1,
+                    '&.Mui-selected': {
+                      bgcolor: 'primary.light',
+                      color: 'white',
+                      '&:hover': {
+                        bgcolor: 'primary.main',
+                      }
+                    }
+                  }}
+                >
+                  <ChatIcon sx={{ mr: 1 }} />
+                  Ask
+                </ToggleButton>
+                <ToggleButton 
+                  value="agent" 
+                  sx={{ 
+                    py: 1,
+                    '&.Mui-selected': {
+                      bgcolor: 'secondary.light',
+                      color: 'white',
+                      '&:hover': {
+                        bgcolor: 'secondary.main',
+                      }
+                    }
+                  }}
+                >
+                  <ManageAccountsIcon sx={{ mr: 1 }} />
+                  Agent
+                </ToggleButton>
+              </ToggleButtonGroup>
+            </Box>
+            
+            <Divider />
+            
+            <Box 
+              sx={{ 
+                flex: 1, 
+                p: 2, 
+                overflowY: 'auto',
+                backgroundColor: '#f9f9f9'
+              }}
+            >
+              {messages.map((message, idx) => renderMessage(message, idx))}
+              <div ref={messagesEndRef} />
+            </Box>
+            
+            <Divider />
+            
+            <Box 
+              sx={{ 
+                p: 1.5, 
+                display: 'flex', 
+                alignItems: 'center',
+                bgcolor: 'white'
+              }}
+            >
+              {(mode === 'ask' || mode === 'agent') && (
+                <TextField
+                  variant="outlined"
+                  size="small"
+                  fullWidth
+                  placeholder="Ask a question..."
+                  sx={{ bgcolor: 'white' }}
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyPress={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      sendMessage();
+                    }
+                  }}
+                  disabled={loading}
+                  multiline
+                  maxRows={3}
+                />
+              )}
+              
+              {(mode === 'ask' || mode === 'agent') && (
+                <IconButton 
+                  color="primary" 
+                  onClick={sendMessage} 
+                  disabled={loading || !input.trim()}
+                  sx={{ ml: 1 }}
+                >
+                  {loading ? <CircularProgress size={24} /> : <SendIcon />}
+                </IconButton>
+              )}
             </Box>
           </Paper>
         </Box>

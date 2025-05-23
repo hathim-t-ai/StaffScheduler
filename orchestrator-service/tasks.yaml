@@ -1,0 +1,53 @@
+parse_command:
+  description: "Parse user scheduling command into structured parameters (date, hours, staffNames, projectNames)."
+  expected_output: "parsed: Object with date, hours, staffNames, projectNames."
+  agent: "CommandParser"
+  context:
+    - "Original query from user input should be used to extract scheduling parameters."
+
+fetch_availability:
+  description: "Fetch and compute staff availability for a given date, optionally filtered to specific staff."
+  expected_output: "availability: List of staff availability objects."
+  agent: "AvailabilityFetcher"
+  context:
+    - "parse_command"
+
+match_shifts:
+  description: "Match staff to shifts based on availability, project requirements, and specified hours."
+  expected_output: "matches: List of shift assignment results."
+  agent: "ShiftMatcher"
+  context:
+    - "fetch_availability"
+
+send_notifications:
+  description: "Create notification messages for shift assignments with project details."
+  expected_output: "notifications: List of sent notifications."
+  agent: "Notifier"
+  context:
+    - "match_shifts"
+
+resolve_conflicts:
+  description: "Detect and resolve scheduling conflicts among assigned shifts."
+  expected_output: "resolvedMatches: List of conflict-resolved matches, conflictsFound: boolean, resolutionNotes: string."
+  agent: "ConflictResolver"
+  context:
+    - "match_shifts"
+
+log_audit:
+  description: "Log the orchestration run context, metrics, and summarized output."
+  expected_output: "auditLog: Historical log entries, summary: string."
+  agent: "AuditLogger"
+  context:
+    - "resolve_conflicts"
+
+retrieve_data:
+  description: "Retrieve and structure data based on natural language user query."
+  expected_output: "data: Retrieved raw data based on query, queryIntent: string."
+  agent: "RetrievalAgent"
+
+summarize_data:
+  description: "Summarize retrieved data into a conversational, user-friendly response."
+  expected_output: "response: Concise, natural language answer as string."
+  agent: "SummarizerAgent"
+  context:
+    - "retrieve_data" 
