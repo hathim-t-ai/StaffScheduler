@@ -247,8 +247,7 @@ app.post('/api/orchestrate', async (req, res) => {
         
         const result = await directBooking({
           staffName: bookingCommand.staffName,
-          projectName: bookingCommand.projectName,
-          hours: bookingCommand.hours,
+          projectBookings: bookingCommand.projectBookings,
           date: bookingCommand.date
         });
         
@@ -260,14 +259,15 @@ app.post('/api/orchestrate', async (req, res) => {
           return res.json({
             success: true,
             message: result.message,
-            resolvedMatches: [{
-              staffId: result.assignment.staffName,
-              staffName: result.assignment.staffName,
-              assignedHours: result.assignment.hours,
-              date: result.assignment.date
-            }],
+            resolvedMatches: result.assignments.map((a) => ({
+              staffId: a.staffName,
+              staffName: a.staffName,
+              assignedHours: a.hours,
+              date: a.date
+            })),
             processingTime: `${duration}ms`,
-            booking: result.assignment
+            booking: result.assignments,
+            isMultiProject: result.isMultiProject
           });
         } else {
           return res.json({ 
@@ -377,8 +377,7 @@ app.post('/api/ask', async (req, res) => {
       
       const result = await directBooking({
         staffName: bookingCommand.staffName,
-        projectName: bookingCommand.projectName,
-        hours: bookingCommand.hours,
+        projectBookings: bookingCommand.projectBookings,
         date: bookingCommand.date
       });
       
@@ -389,8 +388,9 @@ app.post('/api/ask', async (req, res) => {
         return res.json({ 
           content: result.message,
           type: 'text',
-          booking: result.assignment,
-          processingTime: `${duration}ms`
+          booking: result.assignments,
+          processingTime: `${duration}ms`,
+          isMultiProject: result.isMultiProject
         });
       } else {
         return res.json({ 

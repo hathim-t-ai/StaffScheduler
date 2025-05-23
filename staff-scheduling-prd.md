@@ -772,3 +772,75 @@ The platform allows users to upload data from external sources (Excel, CSV, Goog
 #### Icons
 - Material Design icon set for consistency
 - Icon size: 24px for navigation, 18px for inline
+
+## Migration Roadmap: Switch to MultiCrew
+*To replace LangChain with MultiCrew, follow these steps:*
+
+1. **Audit & Strip Out**  
+   - Remove `langchain`, `@langchain/core`, `@langchain/openai`, and any existing chain setup code.  
+   - Identify all logical steps currently implemented via chains.
+
+2. **Install & Scaffold Python Microservice**  
+   - Create a new `orchestrator-service` directory.  
+   - Add `requirements.txt` with:
+     - `fastapi`
+     - `uvicorn[standard]`
+     - `git+https://github.com/tapunict/crew.git#egg=crew`  
+   - Implement `app.py` to expose a `/orchestrate` endpoint via FastAPI, registering `AvailabilityFetcher` and `ShiftMatcher` agents.
+
+3. **Port One Workflow End-to-End**  
+   - Select a critical feature (e.g., assign one shift).  
+   - Implement `AvailabilityFetcher` → `ShiftMatcher` → `Notifier` agents.  
+   - Validate correctness and measure latency.
+
+4. **Incrementally Add Agents**  
+   - Introduce `ConflictResolver` and `AuditLogger` agents.  
+   - Add memory layers (e.g., in-process or Redis) if needed.
+
+5. **Integration & Testing** (CRUCIAL)  
+   - Write unit tests for each agent.  
+   - Perform end-to-end tests on a staging calendar.  
+   - Monitor error rates, throughput, and cost per run.
+
+6. **Cutover & Rollback Plan**  
+   - Feature-flag the MultiCrew orchestrator alongside the existing LangChain version.  
+   - Gradually shift traffic; keep LangChain live as fallback.  
+   - Fully remove LangChain code once the new orchestrator is stable.
+
+*Always remember that **Step 5 (Integration & Testing)** is absolutely critical to ensure reliability before full rollout.*
+
+## Implementation Plan & Next Steps
+
+**Current Stage:** Completed Step 5 (Integration & Testing) of the Migration Roadmap, with stub agents wired end-to-end.
+
+### 1. Build Real Agent Logic
+- **AvailabilityFetcher**: Replace HTTP stubs with direct Prisma queries in `prismaClient.js` to fetch staff and assignments for a given date.
+- **ShiftMatcher**: Implement shift-matching algorithm (e.g. round-robin or priority-based) to allocate staff to open slots.
+- **Notifier**: Integrate with email/SMS/in-app notification service to deliver assignment summaries.
+- **ConflictResolver**: Develop logic to detect and resolve overlapping or over-allocated shifts.
+- **AuditLogger**: Persist run context and outputs in Redis or the primary database instead of in-memory.
+
+### 2. Configure CrewAI Integration
+- Define and verify `agents.yaml` and `tasks.yaml` for each agent and task in the workflow.
+- Add `OPENAI_API_KEY` (or other LLM key) to `.env` / `.cursor/mcp.json` for API access.
+- Use `USE_CREW=1` environment flag in staging/production to activate CrewAI pipeline.
+
+### 3. Implement Chat "Ask" Feature
+- Create a new CrewAI crew (e.g. `AskCrew`) with agents for data retrieval and summarization:
+  - **RetrievalAgent**: Query Prisma for staff, projects, assignments based on user query.
+  - **SummarizerAgent**: Condense retrieved data into conversational responses.
+- Expose a new `/api/ask` endpoint in the Express back-end or FastAPI microservice.
+- Write unit and E2E tests for the "ask" workflow.
+
+### 4. Front-End Chat UI
+- Build a React chat component with two modes:
+  1. **Ask Mode**: Sends user inputs to `/api/ask` and displays responses.
+  2. **Agent Mode**: Triggers `/orchestrate` for scheduling tasks and shows progress/results.
+- Implement UX for switching modes, input controls, and rich response rendering.
+
+### 5. Cutover & Cleanup
+- Gradually roll out CrewAI pipeline by toggling `USE_CREW` behind a feature flag.
+- Remove all stub orchestrator code and legacy LangChain integration once stabilized.
+- Monitor performance, error rates, and cost per run; optimize prompts, batching, or caching as needed.
+
+---

@@ -8,6 +8,7 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import { useSelector, useDispatch } from 'react-redux';
 import { RootState } from '../store';
 import axios from 'axios';
+import { v4 as uuidv4 } from 'uuid';
 
 // Import app components
 import NavigationBar from '../components/NavigationBar';
@@ -32,7 +33,7 @@ const SchedulingPage: React.FC = () => {
   // Function to load assignments from backend
   const loadAssignments = useCallback(async () => {
     try {
-      const res = await axios.get('/api/assignments');
+      const res = await axios.get(`/api/assignments?_=${new Date().getTime()}`);
       const tasks = res.data.map((a: { id: string; staffId: string; date: string; projectName: string; hours: number; projectId: string; }) => ({
         id: a.id,
         staffId: a.staffId,
@@ -41,6 +42,7 @@ const SchedulingPage: React.FC = () => {
         hours: a.hours,
         projectId: a.projectId,
       }));
+      console.log('[SchedulingPage] Tasks fetched from /api/assignments:', tasks);
       dispatch(setTasks(tasks));
     } catch (err) {
       console.error('Error loading assignments', err);
@@ -54,9 +56,13 @@ const SchedulingPage: React.FC = () => {
 
   // Refresh assignments when calendar requests a refresh
   useEffect(() => {
-    window.addEventListener('refreshCalendar', loadAssignments);
+    const handleRefresh = () => {
+      console.log('[SchedulingPage] Received refreshCalendar event');
+      loadAssignments();
+    };
+    window.addEventListener('refreshCalendar', handleRefresh);
     return () => {
-      window.removeEventListener('refreshCalendar', loadAssignments);
+      window.removeEventListener('refreshCalendar', handleRefresh);
     };
   }, [loadAssignments]);
   
@@ -158,6 +164,39 @@ const SchedulingPage: React.FC = () => {
     });
   };
   
+  // Handler to run orchestration via CrewAI
+  const handleRunOrchestrator = async () => {
+    try {
+      // Use the current start date for daily scheduling
+      const date = currentStartDate.toISOString().split('T')[0];
+      const res = await axios.post('/api/orchestrate', { date });
+      const { resolvedMatches } = res.data;
+      // Transform resolvedMatches into ScheduleTask objects
+      const tasks = resolvedMatches.map((match: any) => ({
+        id: uuidv4(),
+        staffId: match.staffId,
+        date: match.date,
+        taskType: match.staffName,
+        hours: match.assignedHours,
+        projectId: undefined,
+      }));
+      dispatch(setTasks(tasks));
+      // Notify success
+      setNotification({
+        open: true,
+        message: 'Orchestrator scheduled shifts successfully!',
+        severity: 'success'
+      });
+    } catch (err) {
+      console.error('Error running orchestrator', err);
+      setNotification({
+        open: true,
+        message: 'Failed to run orchestrator',
+        severity: 'error'
+      });
+    }
+  };
+  
   return (
     <Container maxWidth={false} disableGutters>
       <NavigationBar title="Schedule" />
@@ -184,6 +223,10 @@ const SchedulingPage: React.FC = () => {
                   onWeeklyAssign={handleWeeklyAssign}
                 />
               </Box>
+              {/* Auto Schedule button */}
+              <Button variant="contained" color="primary" onClick={handleRunOrchestrator} size="small" sx={{ ml: 2 }}>
+                Auto Schedule
+              </Button>
               {/* Clear Schedule button */}
               <Button variant="outlined" color="error" startIcon={<DeleteIcon />} onClick={handleOpenClearDialog} size="small" sx={{ ml: 'auto' }}>
                 Clear Schedule

@@ -6,7 +6,7 @@ import AddPage from './pages/AddPage';
 import SchedulingPage from './pages/SchedulingPage';
 import AnalyticsPage from './pages/AnalyticsPage';
 import SettingsPage from './pages/SettingsPage';
-import AIChatWidget from './components/AIChatWidget';
+import ChatWidget from './components/ChatWidget';
 
 // Create a theme based on the PRD color palette
 const theme = createTheme({
@@ -75,7 +75,7 @@ function App() {
           <Route path="/settings" element={<SettingsPage />} />
         </Routes>
       </Router>
-      <AIChatWidget />
+      <ChatWidget />
     </ThemeProvider>
   );
 }

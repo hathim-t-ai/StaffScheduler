@@ -11,7 +11,9 @@ import {
   Divider,
   Avatar,
   Autocomplete,
-  Tooltip
+  Tooltip,
+  Menu,
+  MenuItem
 } from '@mui/material';
 import ToggleButton from '@mui/material/ToggleButton';
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
@@ -21,6 +23,9 @@ import CloseIcon from '@mui/icons-material/Close';
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 import ManageAccountsIcon from '@mui/icons-material/ManageAccounts';
 import FolderIcon from '@mui/icons-material/Folder';
+import ClearIcon from '@mui/icons-material/Clear';
+import MoreVertIcon from '@mui/icons-material/MoreVert';
+import MinimizeIcon from '@mui/icons-material/Minimize';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
@@ -55,14 +60,37 @@ interface MatchResult {
 
 const ChatWidget: React.FC = () => {
   const [open, setOpen] = useState(false);
-  const [messages, setMessages] = useState<Message[]>([
-    { 
-      sender: 'bot', 
-      text: 'Hello! I\'m your Staff Scheduling Assistant. I can help you with information about staff, projects, and schedules, or assist you with scheduling tasks. How can I help you today?', 
-      timestamp: new Date(),
-      type: 'text'
+  const [minimized, setMinimized] = useState(false);
+  const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
+  
+  // Load messages from localStorage on initialization
+  const loadMessagesFromStorage = (): Message[] => {
+    try {
+      const stored = localStorage.getItem('chatMessages');
+      if (stored) {
+        const parsedMessages = JSON.parse(stored);
+        // Convert timestamp strings back to Date objects
+        return parsedMessages.map((msg: any) => ({
+          ...msg,
+          timestamp: new Date(msg.timestamp)
+        }));
+      }
+    } catch (error) {
+      console.error('Failed to load chat messages from localStorage:', error);
     }
-  ]);
+    
+    // Return default welcome message if no stored messages
+    return [
+      { 
+        sender: 'bot', 
+        text: 'Hello! I\'m your Staff Scheduling Assistant. I can help you with information about staff, projects, and schedules, or assist you with scheduling tasks. How can I help you today?', 
+        timestamp: new Date(),
+        type: 'text'
+      }
+    ];
+  };
+  
+  const [messages, setMessages] = useState<Message[]>(loadMessagesFromStorage);
   const [input, setInput] = useState('');
   const [mode, setMode] = useState<'ask' | 'agent'>('ask');
   const [loading, setLoading] = useState(false);
@@ -74,6 +102,15 @@ const ChatWidget: React.FC = () => {
   const [hours, setHours] = useState<number>(8);
   
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+
+  // Save messages to localStorage whenever messages change
+  useEffect(() => {
+    try {
+      localStorage.setItem('chatMessages', JSON.stringify(messages));
+    } catch (error) {
+      console.error('Failed to save chat messages to localStorage:', error);
+    }
+  }, [messages]);
 
   // Load staff and projects on initial render
   useEffect(() => {
@@ -100,6 +137,40 @@ const ChatWidget: React.FC = () => {
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  // Clear chat function
+  const clearChat = () => {
+    const welcomeMessage: Message = { 
+      sender: 'bot', 
+      text: 'Hello! I\'m your Staff Scheduling Assistant. I can help you with information about staff, projects, and schedules, or assist you with scheduling tasks. How can I help you today?', 
+      timestamp: new Date(),
+      type: 'text'
+    };
+    setMessages([welcomeMessage]);
+    setMenuAnchor(null); // Close the menu
+  };
+
+  // Menu handlers
+  const handleMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
+    setMenuAnchor(event.currentTarget);
+  };
+
+  const handleMenuClose = () => {
+    setMenuAnchor(null);
+  };
+
+  // Minimize/maximize handlers
+  const handleHeaderClick = () => {
+    setMinimized(!minimized);
+  };
+
+  const handleToggleChat = () => {
+    if (minimized) {
+      setMinimized(false);
+    } else {
+      setOpen(!open);
+    }
+  };
 
   const handleModeChange = (_event: React.MouseEvent<HTMLElement>, newMode: 'ask' | 'agent' | null) => {
     if (newMode !== null) {
@@ -216,7 +287,9 @@ const ChatWidget: React.FC = () => {
       setMessages(prev => [...prev, botMsg]);
       
       // 🚀 AUTO-REFRESH SCHEDULE: Trigger calendar refresh if booking was successful
-      if ((res.data.resolvedMatches && res.data.resolvedMatches.length > 0) || res.data.booking) {
+      if ((res.data.resolvedMatches && res.data.resolvedMatches.length > 0) || 
+          (res.data.booking && Array.isArray(res.data.booking) && res.data.booking.length > 0) ||
+          (res.data.booking && !Array.isArray(res.data.booking))) {
         console.log('🔄 Booking successful! Refreshing schedule page...');
         // Dispatch custom event to refresh the schedule calendar
         window.dispatchEvent(new CustomEvent('refreshCalendar'));
@@ -322,7 +395,9 @@ const ChatWidget: React.FC = () => {
               setMessages(prev => [...prev, botMsg]);
               
               // 🚀 AUTO-REFRESH SCHEDULE: Trigger calendar refresh if booking was successful (retry path)
-              if ((res.data.resolvedMatches && res.data.resolvedMatches.length > 0) || res.data.booking) {
+              if ((res.data.resolvedMatches && res.data.resolvedMatches.length > 0) || 
+                  (res.data.booking && Array.isArray(res.data.booking) && res.data.booking.length > 0) ||
+                  (res.data.booking && !Array.isArray(res.data.booking))) {
                 console.log('🔄 Booking successful on retry! Refreshing schedule page...');
                 // Dispatch custom event to refresh the schedule calendar
                 window.dispatchEvent(new CustomEvent('refreshCalendar'));
@@ -434,7 +509,7 @@ const ChatWidget: React.FC = () => {
       {!open && (
         <Tooltip title="Open Staff Scheduler Chat Assistant">
           <IconButton
-            onClick={() => setOpen(true)}
+            onClick={handleToggleChat}
             sx={{ 
               position: 'fixed', 
               bottom: 20, 
@@ -460,7 +535,7 @@ const ChatWidget: React.FC = () => {
             bottom: 20, 
             right: 20, 
             width: 360, 
-            height: 600, 
+            height: minimized ? 'auto' : 600, 
             zIndex: 1300,
             boxShadow: 10,
             borderRadius: 2,
@@ -472,7 +547,7 @@ const ChatWidget: React.FC = () => {
             sx={{ 
               bgcolor: 'white', 
               color: 'black', 
-              height: '100%', 
+              height: minimized ? 'auto' : '100%', 
               display: 'flex', 
               flexDirection: 'column'
             }}
@@ -484,117 +559,175 @@ const ChatWidget: React.FC = () => {
                 color: 'white',
                 display: 'flex', 
                 justifyContent: 'space-between', 
-                alignItems: 'center'
+                alignItems: 'center',
+                cursor: 'pointer',
+                '&:hover': {
+                  bgcolor: 'primary.dark'
+                }
               }}
+              onClick={handleHeaderClick}
             >
               <Typography variant="h6" sx={{ fontWeight: 'bold', flexGrow: 1 }}>
                 Staff Scheduler Assistant
               </Typography>
-              <IconButton size="small" onClick={() => setOpen(false)} sx={{ color: 'white' }}>
-                <CloseIcon />
-              </IconButton>
+              <Box sx={{ display: 'flex', gap: 1 }}>
+                <Tooltip title={minimized ? "Maximize Chat" : "Minimize Chat"}>
+                  <IconButton size="small" sx={{ color: 'white' }}>
+                    <MinimizeIcon />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="More Options">
+                  <IconButton 
+                    size="small" 
+                    onClick={(e) => {
+                      e.stopPropagation(); // Prevent header click
+                      handleMenuOpen(e);
+                    }} 
+                    sx={{ color: 'white' }}
+                  >
+                    <MoreVertIcon />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="Close Chat">
+                  <IconButton 
+                    size="small" 
+                    onClick={(e) => {
+                      e.stopPropagation(); // Prevent header click
+                      setOpen(false);
+                    }} 
+                    sx={{ color: 'white' }}
+                  >
+                    <CloseIcon />
+                  </IconButton>
+                </Tooltip>
+              </Box>
             </Box>
             
-            <Box sx={{ px: 2, py: 1.5, bgcolor: 'grey.100' }}>
-              <ToggleButtonGroup
-                value={mode}
-                exclusive
-                onChange={handleModeChange}
-                size="small"
-                fullWidth
-                sx={{ mb: 0 }}
-              >
-                <ToggleButton 
-                  value="ask" 
-                  sx={{ 
-                    py: 1,
-                    '&.Mui-selected': {
-                      bgcolor: 'primary.light',
-                      color: 'white',
-                      '&:hover': {
-                        bgcolor: 'primary.main',
-                      }
-                    }
-                  }}
-                >
-                  <ChatIcon sx={{ mr: 1 }} />
-                  Ask
-                </ToggleButton>
-                <ToggleButton 
-                  value="agent" 
-                  sx={{ 
-                    py: 1,
-                    '&.Mui-selected': {
-                      bgcolor: 'secondary.light',
-                      color: 'white',
-                      '&:hover': {
-                        bgcolor: 'secondary.main',
-                      }
-                    }
-                  }}
-                >
-                  <ManageAccountsIcon sx={{ mr: 1 }} />
-                  Agent
-                </ToggleButton>
-              </ToggleButtonGroup>
-            </Box>
-            
-            <Divider />
-            
-            <Box 
-              sx={{ 
-                flex: 1, 
-                p: 2, 
-                overflowY: 'auto',
-                backgroundColor: '#f9f9f9'
+            {/* 3-dots menu */}
+            <Menu
+              anchorEl={menuAnchor}
+              open={Boolean(menuAnchor)}
+              onClose={handleMenuClose}
+              anchorOrigin={{
+                vertical: 'bottom',
+                horizontal: 'right',
+              }}
+              transformOrigin={{
+                vertical: 'top',
+                horizontal: 'right',
               }}
             >
-              {messages.map((message, idx) => renderMessage(message, idx))}
-              <div ref={messagesEndRef} />
-            </Box>
-            
-            <Divider />
-            
-            <Box 
-              sx={{ 
-                p: 1.5, 
-                display: 'flex', 
-                alignItems: 'center',
-                bgcolor: 'white'
-              }}
-            >
-              {(mode === 'ask' || mode === 'agent') && (
-                <TextField
-                  variant="outlined"
-                  size="small"
-                  fullWidth
-                  placeholder="Ask a question..."
-                  sx={{ bgcolor: 'white' }}
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  onKeyPress={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                      e.preventDefault();
-                      sendMessage();
-                    }
+              <MenuItem onClick={clearChat}>
+                <ClearIcon sx={{ mr: 1 }} />
+                Clear Chat History
+              </MenuItem>
+            </Menu>
+
+            {/* Show the rest of the chat only when not minimized */}
+            {!minimized && (
+              <>
+                <Box sx={{ px: 2, py: 1.5, bgcolor: 'grey.100' }}>
+                  <ToggleButtonGroup
+                    value={mode}
+                    exclusive
+                    onChange={handleModeChange}
+                    size="small"
+                    fullWidth
+                    sx={{ mb: 0 }}
+                  >
+                    <ToggleButton 
+                      value="ask" 
+                      sx={{ 
+                        py: 1,
+                        '&.Mui-selected': {
+                          bgcolor: 'primary.light',
+                          color: 'white',
+                          '&:hover': {
+                            bgcolor: 'primary.main',
+                          }
+                        }
+                      }}
+                    >
+                      <ChatIcon sx={{ mr: 1 }} />
+                      Ask
+                    </ToggleButton>
+                    <ToggleButton 
+                      value="agent" 
+                      sx={{ 
+                        py: 1,
+                        '&.Mui-selected': {
+                          bgcolor: 'secondary.light',
+                          color: 'white',
+                          '&:hover': {
+                            bgcolor: 'secondary.main',
+                          }
+                        }
+                      }}
+                    >
+                      <ManageAccountsIcon sx={{ mr: 1 }} />
+                      Agent
+                    </ToggleButton>
+                  </ToggleButtonGroup>
+                </Box>
+                
+                <Divider />
+                
+                <Box 
+                  sx={{ 
+                    flex: 1, 
+                    p: 2, 
+                    overflowY: 'auto',
+                    backgroundColor: '#f9f9f9'
                   }}
-                  disabled={loading}
-                  multiline
-                  maxRows={3}
-                />
-              )}
-              
-              {(mode === 'ask' || mode === 'agent') && (
-                <IconButton 
-                  color="primary" 
-                  onClick={sendMessage} 
-                  disabled={loading || !input.trim()}
-                  sx={{ ml: 1 }}
                 >
-                  {loading ? <CircularProgress size={24} /> : <SendIcon />}
-                </IconButton>
-              )}
-            </Box>
+                  {messages.map((message, idx) => renderMessage(message, idx))}
+                  <div ref={messagesEndRef} />
+                </Box>
+                
+                <Divider />
+                
+                <Box 
+                  sx={{ 
+                    p: 1.5, 
+                    display: 'flex', 
+                    alignItems: 'center',
+                    bgcolor: 'white'
+                  }}
+                >
+                  {(mode === 'ask' || mode === 'agent') && (
+                    <TextField
+                      variant="outlined"
+                      size="small"
+                      fullWidth
+                      placeholder="Ask a question..."
+                      sx={{ bgcolor: 'white' }}
+                      value={input}
+                      onChange={(e) => setInput(e.target.value)}
+                      onKeyPress={(e) => {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                          e.preventDefault();
+                          sendMessage();
+                        }
+                      }}
+                      disabled={loading}
+                      multiline
+                      maxRows={3}
+                    />
+                  )}
+                  
+                  {(mode === 'ask' || mode === 'agent') && (
+                    <IconButton 
+                      color="primary" 
+                      onClick={sendMessage} 
+                      disabled={loading || !input.trim()}
+                      sx={{ ml: 1 }}
+                    >
+                      {loading ? <CircularProgress size={24} /> : <SendIcon />}
+                    </IconButton>
+                  )}
+                </Box>
+              </>
+            )}
           </Paper>
         </Box>
       )}

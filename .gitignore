@@ -11,6 +11,35 @@ node_modules/
 
 # Environment variables
 .env
+.env.local
+.env.development
+.env.test
+.env.production
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+orchestrator-service/.venv/
+orchestrator-service/__pycache__/
+.pytest_cache/
 
 # Editor directories and files
 .idea
@@ -26,4 +55,9 @@ node_modules/
 
 # Task files
 tasks.json
-tasks/ 
+tasks/
+
+# Database
+*.sqlite
+*.db
+*.db-journal 

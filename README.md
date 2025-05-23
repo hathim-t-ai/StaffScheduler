@@ -9,6 +9,7 @@ A web-based staff scheduling SaaS application for managing workforce allocation,
 - **Scheduling Page**: Calendar-based resource allocation with visual indicators
 - **Analytics Dashboard**: Resource utilization and project performance metrics
 - **Settings Page**: Configurable rules and system preferences
+- **AI Chatbot**: Intelligent assistant for information retrieval and scheduling
 
 ## Technical Stack
 
@@ -21,17 +22,24 @@ A web-based staff scheduling SaaS application for managing workforce allocation,
 - Formik for form handling
 - AG Grid for tabular data display
 
-### Backend (Planned)
+### Backend
 - Node.js with Express
-- PostgreSQL database
-- Redis for caching
+- Prisma ORM with SQLite database
+- OpenAI integration for AI features
 - RESTful API architecture
+
+### AI Orchestration
+- Python FastAPI service
+- CrewAI for agent orchestration
+- Specialized AI agents for data retrieval and task execution
 
 ## Getting Started
 
 ### Prerequisites
 - Node.js (v16.x or later)
 - npm (v8.x or later)
+- Python (v3.9 or later)
+- OpenAI API key
 
 ### Installation
 
@@ -41,34 +49,77 @@ A web-based staff scheduling SaaS application for managing workforce allocation,
    cd staff-scheduler
    ```
 
-2. Install dependencies
+2. Install Node.js dependencies
    ```bash
    npm install
    ```
 
-3. Start the development server
+3. Setup environment variables
+   Create a `.env` file in the root directory with the following:
+   ```
+   OPENAI_API_KEY=your_openai_api_key_here
+   DATABASE_URL="file:./prisma/dev.db"
+   ```
+
+4. Start both services (Node.js and Python)
    ```bash
-   npm start
+   # On Unix/Mac
+   ./start.sh
+   
+   # On Windows
+   start.bat
    ```
    
-4. Open your browser and visit [http://localhost:3000](http://localhost:3000)
+5. Open your browser and visit [http://localhost:3000](http://localhost:3000)
+
+## Using the AI Chatbot
+
+The application includes a powerful AI chatbot that can answer questions about staff, projects, and schedules, as well as help with scheduling tasks.
+
+### Ask Mode
+Use the chatbot to get information by asking natural language questions like:
+- "Who is available tomorrow?"
+- "What projects is John working on?"
+- "How many hours has the Design team worked this month?"
+- "Show me all staff members in the Marketing department"
+
+### Schedule Mode
+Use the chatbot to schedule staff for projects:
+1. Switch to "Schedule" mode in the chat interface
+2. Select a date
+3. Select one or more staff members
+4. Select a project
+5. Enter hours (1-8)
+6. Click "Schedule Staff"
+
+The AI will automatically check availability, schedule the staff, and provide confirmation.
 
 ## Project Structure
 
 ```
 staff-scheduler/
-├── public/             # Static assets
+├── public/               # Static assets
+├── prisma/               # Prisma DB schema and migrations
+├── orchestrator-service/ # Python AI orchestrator
+│   ├── agents.yaml       # CrewAI agent definitions
+│   ├── tasks.yaml        # CrewAI task definitions
+│   └── app.py            # FastAPI application
 ├── src/
-│   ├── components/     # Reusable UI components
-│   ├── contexts/       # React contexts for state sharing
-│   ├── hooks/          # Custom React hooks
-│   ├── pages/          # Main application pages
-│   ├── services/       # API services and data fetching
-│   ├── store/          # Redux store and slices
-│   ├── utils/          # Helper functions and utilities
-│   ├── App.tsx         # Main application component
-│   └── index.tsx       # Application entry point
-└── package.json        # Project dependencies and scripts
+│   ├── components/       # Reusable UI components
+│   │   └── ChatWidget.tsx # AI chat interface
+│   ├── contexts/         # React contexts for state sharing
+│   ├── hooks/            # Custom React hooks
+│   ├── pages/            # Main application pages
+│   ├── services/         # API services and data fetching
+│   ├── store/            # Redux store and slices
+│   ├── utils/            # Helper functions and utilities
+│   ├── App.tsx           # Main application component
+│   └── index.tsx         # Application entry point
+├── server.js             # Express backend server
+├── chatFunctions.js      # OpenAI function implementations
+├── start.sh              # Unix startup script
+├── start.bat             # Windows startup script
+└── package.json          # Project dependencies and scripts
 ```
 
 ## Development Guidelines
@@ -90,7 +141,7 @@ This application provides powerful tools for:
 - Scheduling resources with built-in conflict prevention and daily hour limits
 - Analyzing resource utilization and project performance
 - Supporting Excel/CSV/Google Sheets data imports with column mapping
-- Role-based access control for administrators and team leads
+- AI-powered scheduling assistant and information retrieval
 
 ## Key Features
 
@@ -108,10 +159,13 @@ This application provides powerful tools for:
 - Consistent color scheme (yellow for hours, green for availability)
 - Navigable calendar defaulting to the current week
 - Collapsible left pane for improved workspace utilization
+- Intelligent chat interface with two operational modes
 
-### Authentication
-- Role-based access control (admin/team lead)
-- Extensible permission system for future role expansion
+### AI Assistance
+- Natural language queries for information retrieval
+- Smart scheduling with conflict detection and resolution
+- Multiple specialized AI agents for different tasks
+- Integration with database via OpenAI function calling
 
 ### File Imports
 - Support for Excel, CSV and Google Sheets imports
@@ -120,12 +174,13 @@ This application provides powerful tools for:
 
 ## Available Scripts
 
-- `npm run dev` - Start the development server
+- `npm run start` - Start both the Node.js server and React application
+- `npm run start-client` - Start only the React frontend
 - `npm run build` - Build the application for production
-- `npm run start` - Start the production server
 - `npm run lint` - Run ESLint to check code quality
 - `npm run test` - Run test suite
 - `npm run format` - Format code using Prettier
+- `npm run serve-chat` - Start only the Node.js server
 
 ## Repository
 

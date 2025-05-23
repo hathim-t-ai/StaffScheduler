@@ -255,17 +255,10 @@ function parseBookingCommand(query) {
     return null;
   }
   
-  // Extract staff name (supports "firstname lastname" format)
-  const staffNameMatch = lowerQuery.match(/(?:book|schedule|assign|allocate)\s+([a-zA-Z]+(?:\s+[a-zA-Z]+)*)/);
-  const staffName = staffNameMatch ? staffNameMatch[1].trim() : null;
-  
-  // Extract project name (supports "project name" after "on project" or "to project")
-  const projectMatch = lowerQuery.match(/(?:on|to)\s+(?:project\s+)?([a-zA-Z][a-zA-Z0-9\s]*?)(?:\s+for|\s+on\s+\d|$)/);
-  const projectName = projectMatch ? projectMatch[1].trim() : null;
-  
-  // Extract hours
-  const hoursMatch = lowerQuery.match(/(\d+)\s*(?:hrs?|hours?)/);
-  const hours = hoursMatch ? parseInt(hoursMatch[1], 10) : null;
+  // Extract staff name - find text between booking keyword and "on"
+  const staffRegex = /(?:book|schedule|assign|allocate)\s+(.*?)\s+on\s+/i;
+  const staffMatch = lowerQuery.match(staffRegex);
+  const staffName = staffMatch ? staffMatch[1].trim() : null;
   
   // Extract date (supports various formats)
   const dateMatch = lowerQuery.match(/(\d{1,2})(?:st|nd|rd|th)?\s+(january|february|march|april|may|june|july|august|september|october|november|december)(?:\s+(\d{4}))?/i);
@@ -282,29 +275,49 @@ function parseBookingCommand(query) {
     date = `${yearNum}-${String(monthIndex + 1).padStart(2, '0')}-${String(parseInt(day, 10)).padStart(2, '0')}`;
   }
   
+  // Extract project patterns - find all "project X for Y hrs" patterns
+  const projectPatterns = [];
+  
+  // Find all project+hours patterns
+  const projectRegex = /(?:project\s+)?([a-zA-Z][a-zA-Z0-9]*)\s+for\s+(\d+)\s*(?:hrs?|hours?)/gi;
+  let match;
+  
+  while ((match = projectRegex.exec(lowerQuery)) !== null) {
+    const projectName = match[1].trim();
+    const hours = parseInt(match[2], 10);
+    
+    if (projectName && !projectPatterns.some(p => p.projectName.toLowerCase() === projectName.toLowerCase())) {
+      projectPatterns.push({
+        projectName: projectName,
+        hours: hours
+      });
+    }
+  }
+  
   return {
     isBookingCommand: true,
     staffName,
-    projectName,
-    hours,
+    projectBookings: projectPatterns, // Array of {projectName, hours}
     date,
-    originalQuery: query
+    originalQuery: query,
+    isMultiProject: projectPatterns.length > 1
   };
 }
 
 /**
  * Fast direct booking function that bypasses the orchestrator for simple bookings
+ * Now supports multiple project bookings in one command
  */
-async function directBooking({ staffName, projectName, hours, date }) {
+async function directBooking({ staffName, projectBookings, date }) {
   try {
-    console.log(`Direct booking: ${staffName} -> ${projectName} for ${hours}h on ${date}`);
+    console.log(`Direct booking: ${staffName} -> ${projectBookings.length} project(s) on ${date}`);
     
     // Validate inputs
-    if (!staffName || !projectName || !hours || !date) {
+    if (!staffName || !projectBookings || !Array.isArray(projectBookings) || projectBookings.length === 0 || !date) {
       return {
         success: false,
         error: "Missing required booking information",
-        message: `Please provide: staff name${!staffName ? ' ✗' : ' ✓'}, project name${!projectName ? ' ✗' : ' ✓'}, hours${!hours ? ' ✗' : ' ✓'}, and date${!date ? ' ✗' : ' ✓'}`
+        message: `Please provide: staff name${!staffName ? ' ✗' : ' ✓'}, project(s)${!projectBookings || projectBookings.length === 0 ? ' ✗' : ' ✓'}, and date${!date ? ' ✗' : ' ✓'}`
       };
     }
     
@@ -321,20 +334,38 @@ async function directBooking({ staffName, projectName, hours, date }) {
       };
     }
     
-    // Find project by name (case-insensitive)
+    // Find all projects by name (case-insensitive)
     const allProjects = await prisma.project.findMany();
-    const project = allProjects.find(p => p.name.toLowerCase().includes(projectName.toLowerCase()) || projectName.toLowerCase().includes(p.name.toLowerCase()));
+    const foundProjects = [];
+    const notFoundProjects = [];
     
-    if (!project) {
+    for (const booking of projectBookings) {
+      const project = allProjects.find(p => 
+        p.name.toLowerCase().includes(booking.projectName.toLowerCase()) || 
+        booking.projectName.toLowerCase().includes(p.name.toLowerCase())
+      );
+      
+      if (project) {
+        foundProjects.push({
+          project,
+          hours: booking.hours,
+          originalName: booking.projectName
+        });
+      } else {
+        notFoundProjects.push(booking.projectName);
+      }
+    }
+    
+    if (notFoundProjects.length > 0) {
       const availableProjects = allProjects.map(p => p.name).join(', ');
       return {
         success: false,
-        error: "Project not found",
-        message: `Could not find project "${projectName}". Available projects: ${availableProjects}`
+        error: "Project(s) not found",
+        message: `Could not find project(s): ${notFoundProjects.join(', ')}. Available projects: ${availableProjects}`
       };
     }
     
-    // Check if staff is already assigned on this date
+    // Check total hours and existing assignments
     const targetDate = new Date(date);
     const startOfDay = new Date(Date.UTC(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate()));
     const endOfDay = new Date(Date.UTC(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate(), 23, 59, 59, 999));
@@ -351,45 +382,58 @@ async function directBooking({ staffName, projectName, hours, date }) {
     });
     
     const currentHours = existingAssignments.reduce((sum, a) => sum + a.hours, 0);
-    const newTotalHours = currentHours + hours;
+    const newTotalHours = foundProjects.reduce((sum, p) => sum + p.hours, 0);
+    const finalTotalHours = currentHours + newTotalHours;
     
     // Check capacity (assuming 8-hour workday)
-    if (newTotalHours > 8) {
-      const overbooked = newTotalHours - 8;
+    if (finalTotalHours > 8) {
+      const overbooked = finalTotalHours - 8;
       const currentProjects = existingAssignments.map(a => `${a.project.name} (${a.hours}h)`).join(', ');
+      const newProjectsList = foundProjects.map(p => `${p.project.name} (${p.hours}h)`).join(', ');
       return {
         success: false,
         error: "Staff member would be overbooked",
-        message: `${staff.name} already has ${currentHours}h assigned on ${date} (${currentProjects}). Adding ${hours}h would exceed 8-hour limit by ${overbooked}h.`
+        message: `${staff.name} already has ${currentHours}h assigned on ${date}${currentProjects ? ` (${currentProjects})` : ''}. Adding ${newTotalHours}h (${newProjectsList}) would exceed 8-hour limit by ${overbooked}h.`
       };
     }
     
-    // Create the assignment
-    const assignment = await prisma.assignment.create({
-      data: {
-        staffId: staff.id,
-        projectId: project.id,
-        date: startOfDay,
-        hours: hours
-      },
-      include: {
-        staff: true,
-        project: true
-      }
-    });
+    // Create all assignments
+    const createdAssignments = [];
     
-    return {
-      success: true,
-      message: `Successfully booked ${staff.name} on ${project.name} for ${hours} hour(s) on ${date}`,
-      assignment: {
+    for (const projectBooking of foundProjects) {
+      const assignment = await prisma.assignment.create({
+        data: {
+          staffId: staff.id,
+          projectId: projectBooking.project.id,
+          date: startOfDay,
+          hours: projectBooking.hours
+        },
+        include: {
+          staff: true,
+          project: true
+        }
+      });
+      
+      createdAssignments.push({
         id: assignment.id,
         staffName: assignment.staff.name,
         projectName: assignment.project.name,
         date: assignment.date.toISOString().split('T')[0],
-        hours: assignment.hours,
-        totalHoursOnDate: newTotalHours,
-        remainingCapacity: 8 - newTotalHours
-      }
+        hours: assignment.hours
+      });
+    }
+    
+    const assignmentDetails = createdAssignments.map(a => `${a.projectName} (${a.hours}h)`).join(', ');
+    const totalNewHours = createdAssignments.reduce((sum, a) => sum + a.hours, 0);
+    
+    return {
+      success: true,
+      message: `Successfully booked ${staff.name} on ${createdAssignments.length} project(s) for ${totalNewHours} hour(s) on ${date}: ${assignmentDetails}`,
+      assignments: createdAssignments,
+      totalHoursBooked: totalNewHours,
+      totalHoursOnDate: finalTotalHours,
+      remainingCapacity: 8 - finalTotalHours,
+      isMultiProject: createdAssignments.length > 1
     };
     
   } catch (error) {
