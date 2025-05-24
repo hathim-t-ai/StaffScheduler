@@ -321,10 +321,10 @@ function parseBookingCommand(query) {
 /* ------------------------------------------------------------------ */
 
 async function directBooking({ staffName, projectBookings, date }) {
-  // handle multiple names like "John and Jane"
-  const names = staffName && staffName.includes(' and ')
-    ? staffName.split(/\s+and\s+/i).map(n => n.trim()).filter(Boolean)
-    : [staffName];
+  // split multi-staff names by commas, 'and', or '&'
+  const names = staffName
+    ? staffName.split(/\s*(?:and|,|&)\s*/i).map(n => n.trim()).filter(Boolean)
+    : [];
 
   if (names.length > 1) {
     let all = [];

@@ -304,7 +304,7 @@ app.post('/api/orchestrate', async (req,res)=>{
   if (cmd){
 
     /* -- BULK branch (team / multi-staff / range) -- */
-    if (cmd.isBulk){
+    if (cmd.isBulk && (cmd.teamName || cmd.dateRange)){
       try{
 /* ---------- staff set ---------- */
         let staffList = [];
@@ -348,10 +348,10 @@ app.post('/api/orchestrate', async (req,res)=>{
                           .map(n => n.trim())
                           .filter(Boolean);
 
+          // fetch all staff and perform case-insensitive lookup in JavaScript
+          const allStaff = await prisma.staff.findMany();
           for (const n of names) {
-            const s = await prisma.staff.findFirst({
-              where: { name: { contains: n, mode: 'insensitive' } }
-            });
+            const s = allStaff.find(st => st.name.toLowerCase().includes(n.toLowerCase()));
             if (!s) {
               return res.json({
                 success : false,
