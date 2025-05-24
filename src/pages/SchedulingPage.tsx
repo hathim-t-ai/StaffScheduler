@@ -25,7 +25,7 @@ import Notification from '../components/schedule/Notification';
 import { useScheduleManager } from '../hooks/useScheduleManager';
 import { isAtEndDate as checkIsAtEndDate } from '../utils/ScheduleUtils';
 import { StaffMember } from '../store/slices/staffSlice';
-import { clearSchedule, clearScheduleForStaff, setTasks } from '../store/slices/scheduleSlice';
+import { clearSchedule, clearScheduleForStaff, setTasks, setStartDate } from '../store/slices/scheduleSlice';
 
 const SchedulingPage: React.FC = () => {
   const dispatch = useDispatch();
@@ -146,22 +146,36 @@ const SchedulingPage: React.FC = () => {
     setClearDialogOpen(false);
   };
   
-  const handleClearSchedule = () => {
-    if (selectedStaffIds.length > 0) {
-      dispatch(clearScheduleForStaff(selectedStaffIds));
-      setSelectedStaffIds([]);
-    } else {
-      dispatch(clearSchedule());
-    }
+  // Clear schedule both on server and in local state
+  const handleClearSchedule = async () => {
+    // Close confirmation dialog immediately
     setClearDialogOpen(false);
-    
-    // Show notification using the notification system from useScheduleManager
-    handleCloseNotification(); // Close any existing notification
-    setNotification({
-      open: true,
-      message: 'Schedule data has been cleared',
-      severity: 'info'
-    });
+    try {
+      // Determine date range for current week
+      const from = weekDates[0].toISOString().split('T')[0];
+      const to = weekDates[weekDates.length - 1].toISOString().split('T')[0];
+      // Build deletion payload
+      const payload: any = { from, to };
+      if (selectedStaffIds.length > 0) {
+        payload.staffIds = selectedStaffIds;
+      }
+      // Delete assignments from server
+      await axios.delete('/api/assignments/range', { data: payload });
+      // Clear assignments in local Redux state and localStorage
+      if (selectedStaffIds.length > 0) {
+        dispatch(clearScheduleForStaff(selectedStaffIds));
+        setSelectedStaffIds([]);
+      } else {
+        dispatch(clearSchedule());
+      }
+      // Notify success
+      handleCloseNotification();
+      setNotification({ open: true, message: 'Schedule data has been cleared', severity: 'info' });
+    } catch (error: any) {
+      console.error('Error clearing schedule', error);
+      handleCloseNotification();
+      setNotification({ open: true, message: `Could not clear schedule: ${error.message}`, severity: 'error' });
+    }
   };
   
   // Handler to run orchestration via CrewAI
@@ -197,6 +211,17 @@ const SchedulingPage: React.FC = () => {
     }
   };
   
+  // Handler to jump to current week's schedule
+  const handleGoToCurrentWeek = () => {
+    const today = new Date();
+    const day = today.getDay(); // 0 is Sunday
+    const diff = day === 0 ? -6 : 1 - day; // adjust to Monday
+    const monday = new Date(today);
+    monday.setDate(today.getDate() + diff);
+    const iso = monday.toISOString().split('T')[0];
+    dispatch(setStartDate(iso));
+  };
+  
   return (
     <Container maxWidth={false} disableGutters>
       <NavigationBar title="Schedule" />
@@ -224,8 +249,12 @@ const SchedulingPage: React.FC = () => {
                 />
               </Box>
               {/* Auto Schedule button */}
-              <Button variant="contained" color="primary" onClick={handleRunOrchestrator} size="small" sx={{ ml: 2 }}>
+              <Button variant="contained" color="primary" onClick={handleRunOrchestrator} size="small">
                 Auto Schedule
+              </Button>
+              {/* Current Week button */}
+              <Button variant="outlined" size="small" onClick={handleGoToCurrentWeek}>
+                Current Week
               </Button>
               {/* Clear Schedule button */}
               <Button variant="outlined" color="error" startIcon={<DeleteIcon />} onClick={handleOpenClearDialog} size="small" sx={{ ml: 'auto' }}>

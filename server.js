@@ -393,7 +393,7 @@ app.post('/api/orchestrate', async (req,res)=>{
         }else pushRows(new Date(cmd.date));
 
         const result = await createAssignmentsFromSchedule({assignments});
-        return res.json({success:true,message:result.message, rows:result.assignments});
+        return res.json({ success:true, message:result.message, assignments:result.assignments});
       }catch(e){
         console.error('bulk booking',e);
         return res.status(500).json({success:false,error:'bulk_booking_failed',message:e.message});
@@ -404,7 +404,7 @@ app.post('/api/orchestrate', async (req,res)=>{
     try{
       const r = await directBooking({staffName:cmd.staffName,projectBookings:cmd.projectBookings,date:cmd.date});
       return r.success
-        ? res.json({success:true,message:r.message, rows:r.assignments})
+        ? res.json({success:true,message:r.message, assignments:r.assignments})
         : res.json({success:false,error:r.error,message:r.message});
     }catch(e){
       console.error('direct booking',e);

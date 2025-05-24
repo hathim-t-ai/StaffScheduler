@@ -309,9 +309,11 @@ const ChatWidget: React.FC = () => {
       setMessages(prev => [...prev, botMsg]);
       
       // 🚀 AUTO-REFRESH SCHEDULE: Trigger calendar refresh if booking was successful
-      if ((res.data.resolvedMatches && res.data.resolvedMatches.length > 0) || 
-          (res.data.booking && Array.isArray(res.data.booking) && res.data.booking.length > 0) ||
-          (res.data.booking && !Array.isArray(res.data.booking))) {
+      if (
+        (res.data.resolvedMatches && res.data.resolvedMatches.length > 0) ||
+        (res.data.booking && (Array.isArray(res.data.booking) ? res.data.booking.length > 0 : true)) ||
+        (res.data.assignments && Array.isArray(res.data.assignments) && res.data.assignments.length > 0)
+      ) {
         console.log('🔄 Booking successful! Refreshing schedule page...');
         // Dispatch custom event to refresh the schedule calendar
         window.dispatchEvent(new CustomEvent('refreshCalendar'));
@@ -417,9 +419,11 @@ const ChatWidget: React.FC = () => {
               setMessages(prev => [...prev, botMsg]);
               
               // 🚀 AUTO-REFRESH SCHEDULE: Trigger calendar refresh if booking was successful (retry path)
-              if ((res.data.resolvedMatches && res.data.resolvedMatches.length > 0) || 
-                  (res.data.booking && Array.isArray(res.data.booking) && res.data.booking.length > 0) ||
-                  (res.data.booking && !Array.isArray(res.data.booking))) {
+              if (
+                (res.data.resolvedMatches && res.data.resolvedMatches.length > 0) ||
+                (res.data.booking && (Array.isArray(res.data.booking) ? res.data.booking.length > 0 : true)) ||
+                (res.data.assignments && Array.isArray(res.data.assignments) && res.data.assignments.length > 0)
+              ) {
                 console.log('🔄 Booking successful on retry! Refreshing schedule page...');
                 // Dispatch custom event to refresh the schedule calendar
                 window.dispatchEvent(new CustomEvent('refreshCalendar'));

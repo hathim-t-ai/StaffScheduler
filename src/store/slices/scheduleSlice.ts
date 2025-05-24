@@ -138,6 +138,16 @@ const scheduleSlice = createSlice({
       // Save updated tasks to localStorage
       localStorage.setItem('scheduleTasks', JSON.stringify(state.tasks));
     },
+    removeRange: (state, action: PayloadAction<{ from: string; to: string }>) => {
+      const { from, to } = action.payload;
+      state.tasks = state.tasks.filter(task => {
+        const d = new Date(task.date);
+        return d < new Date(from) || d > new Date(to);
+      });
+      state.filteredTasks = state.tasks;
+      // Save updated tasks to localStorage
+      localStorage.setItem('scheduleTasks', JSON.stringify(state.tasks));
+    },
   },
 });
 
@@ -154,6 +164,7 @@ export const {
   navigateWeek,
   clearSchedule,
   clearScheduleForStaff,
+  removeRange,
 } = scheduleSlice.actions;
 
 export default scheduleSlice.reducer; 

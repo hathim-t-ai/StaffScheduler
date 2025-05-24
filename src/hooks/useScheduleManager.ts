@@ -24,16 +24,9 @@ export const useScheduleManager = (staffMembers: StaffMember[], projects: Projec
   const [selectedStaffId, setSelectedStaffId] = useState('');
   const [currentTasks, setCurrentTasks] = useState<ScheduleTask[]>([]);
   
-  // Current week state
-  const [currentStartDate, setCurrentStartDate] = useState<Date>(() => {
-    const today = new Date();
-    const day = today.getDay(); // 0 is Sunday, 1 is Monday
-    // Set to the current week's Monday
-    const diff = day === 0 ? -6 : 1 - day; // If Sunday, go back 6 days, otherwise adjust to Monday
-    const mondayDate = new Date(today);
-    mondayDate.setDate(today.getDate() + diff);
-    return mondayDate;
-  });
+  // Current week derived from Redux state (persisted in localStorage)
+  const weekStartIso = useSelector((state: RootState) => state.schedule.startDate);
+  const currentStartDate = new Date(weekStartIso);
   
   // Get date array for current week
   const weekDates = getDatesForCurrentWeek(currentStartDate);
@@ -67,16 +60,10 @@ export const useScheduleManager = (staffMembers: StaffMember[], projects: Projec
   
   // Week navigation handlers
   const goToPreviousWeek = () => {
-    const newStartDate = new Date(currentStartDate);
-    newStartDate.setDate(currentStartDate.getDate() - 7);
-    setCurrentStartDate(newStartDate);
     dispatch(navigateWeek('previous'));
   };
   
   const goToNextWeek = () => {
-    const newStartDate = new Date(currentStartDate);
-    newStartDate.setDate(currentStartDate.getDate() + 7);
-    setCurrentStartDate(newStartDate);
     dispatch(navigateWeek('next'));
   };
   
