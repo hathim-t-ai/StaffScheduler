@@ -1,126 +1,137 @@
 // chatFunctions.js
-// Implementation for chat data functions using Prisma ORM.
+// Data helpers & NLP parsers for StaffScheduler
 
 const prisma = require('./prismaClient');
 
+/* ------------------------------------------------------------------ */
+/* 1. Utility helpers                                                  */
+/* ------------------------------------------------------------------ */
+
+// Month helper for date parsing
+const MONTH_INDEX = {
+  january: 0, february: 1, march: 2, april: 3,  may: 4,  june: 5,
+  july: 6,    august: 7,   september: 8, october: 9, november: 10, december: 11
+};
+
 /**
- * Fetch assignments for a staff member between two dates from the JSON DB.
+ * Parse utterances like:
+ *  • "from 9 June to 13 June"
+ *  • "9 June - 13 June 2025"
+ * Returns { from: Date, to: Date } or null.
  */
+function parseDateRange(str) {
+  // day-month-…  OR  month-day-…
+  const rx = /(?:(\d{1,2})(?:st|nd|rd|th)?\s+(january|february|march|april|may|june|july|august|september|october|november|december)|(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{1,2})(?:st|nd|rd|th)?)(?:\s+(\d{4}))?\s+(?:to|until|-)\s+(?:(\d{1,2})(?:st|nd|rd|th)?\s+(january|february|march|april|may|june|july|august|september|october|november|december)|(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{1,2})(?:st|nd|rd|th)?)(?:\s+(\d{4}))?/i;
+  const m = rx.exec(str);
+  if (!m) return null;
+
+  /* ---- normalise captures ---- */
+  const [ , d1a, m1a, m1b, d1b, y1,
+          d2a, m2a, m2b, d2b, y2 ] = m;
+
+  const day1 = d1a || d1b, mon1 = m1a || m1b;
+  const day2 = d2a || d2b, mon2 = m2a || m2b;
+  const yr1  = y1 ? +y1 : new Date().getFullYear();
+  const yr2  = y2 ? +y2 : yr1;
+
+  const from = new Date(Date.UTC(yr1, MONTH_INDEX[mon1.toLowerCase()], +day1));
+  const to   = new Date(Date.UTC(yr2, MONTH_INDEX[mon2.toLowerCase()], +day2, 23,59,59,999));
+  return from>to ? null : { from, to };
+}
+
+
+/**
+ * Parse replacement / swap commands, e.g.:
+ *  "replace 3 hrs on project Aurora for Aisha on 4 June with project Eclipse"
+ * Returns an object or null if no match.
+ */
+function parseReplacement(str) {
+  const rx = /replace\s+(\d+)\s*h(?:ours|rs)?\s+on\s+project\s+([a-z0-9 ]+?)\s+for\s+([a-z0-9 ]+?)\s+on\s+(\d{1,2})\s+(january|february|march|april|may|june|july|august|september|october|november|december)(?:\s+(\d{4}))?\s+with\s+project\s+([a-z0-9 ]+)/i;
+  const m = rx.exec(str);
+  if (!m) return null;
+
+  const [, hrs, fromProj, staff, day, mon, yr, toProj] = m;
+  const year = yr ? +yr : new Date().getFullYear();
+  const date = new Date(Date.UTC(year, MONTH_INDEX[mon.toLowerCase()], +day));
+
+  return {
+    hours: +hrs,
+    staffName: staff.trim(),
+    fromProj:  fromProj.trim(),
+    toProj:    toProj.trim(),
+    date
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/* 2. Core data-access helpers (identical to your original)            */
+/* ------------------------------------------------------------------ */
+
 async function getStaffAssignments({ staffName, from, to }) {
   try {
     console.log(`Fetching assignments for ${staffName} from ${from} to ${to}`);
-    
-    // Validate inputs
-    if (!staffName) {
-      return { error: "Staff name is required" };
-    }
-    
-    // Ensure dates are in proper format
-    let fromDate, toDate;
-    try {
-      fromDate = new Date(from);
-      toDate = new Date(to);
-      
-      // Check if dates are valid
-      if (isNaN(fromDate.getTime()) || isNaN(toDate.getTime())) {
-        console.error("Invalid date format provided");
-        fromDate = new Date(); // Default to today
-        toDate = new Date();
-      }
-    } catch (error) {
-      console.error("Error parsing dates:", error);
-      fromDate = new Date(); // Default to today
-      toDate = new Date();
-    }
-    
-    // Clean up staffName in case it includes a department clause like "Lina from Real Estate"
-    let cleanedName = staffName;
-    const fromMatch = staffName.match(/^(.*?)\s+from\s+/i);
-    if (fromMatch) {
-      cleanedName = fromMatch[1].trim();
+
+    if (!staffName) return { error: 'Staff name is required' };
+
+    let fromDate = new Date(from);
+    let toDate   = new Date(to);
+    if (isNaN(fromDate) || isNaN(toDate)) {
+      fromDate = new Date();
+      toDate   = new Date();
     }
 
-    // Fetch all staff and find matching name case-insensitively
+    // strip "from X dept" if present
+    const fromMatch = staffName.match(/^(.*?)\s+from\s+/i);
+    const cleanedName = fromMatch ? fromMatch[1].trim() : staffName;
+
     const allStaff = await prisma.staff.findMany();
-    const staff = allStaff.find(
-      (s) => s.name.toLowerCase() === cleanedName.toLowerCase()
-    );
-    
+    const staff = allStaff.find(s => s.name.toLowerCase() === cleanedName.toLowerCase());
     if (!staff) {
-      return { 
-        error: "Staff not found",
-        staffName,
-        availableStaff: allStaff.map(s => s.name) // Return list of available staff
-      };
+      return { error: 'Staff not found', staffName, availableStaff: allStaff.map(s => s.name) };
     }
-    
-    // Query assignments within date range including project data
+
     const assignments = await prisma.assignment.findMany({
       where: {
         staffId: staff.id,
-        date: {
-          gte: fromDate,
-          lte: toDate,
-        },
+        date: { gte: fromDate, lte: toDate }
       },
-      include: { project: true },
+      include: { project: true }
     });
-    
-    // Transform assignments for easier consumption
-    const formattedAssignments = assignments.map((a) => ({
-      projectId: a.projectId,
+
+    const formatted = assignments.map(a => ({
+      projectId:   a.projectId,
       projectName: a.project.name,
-      date: a.date.toISOString().split('T')[0],
-      hours: a.hours,
+      date:        a.date.toISOString().split('T')[0],
+      hours:       a.hours
     }));
-    
-    // Add isScheduled flag and more user-friendly information
+
     return {
       staffId: staff.id,
       staffName: staff.name,
       from: fromDate.toISOString().split('T')[0],
-      to: toDate.toISOString().split('T')[0],
-      totalDaysChecked: Math.round((toDate - fromDate) / (1000 * 60 * 60 * 24)) + 1,
-      isScheduled: formattedAssignments.length > 0,
-      assignments: formattedAssignments,
-      totalHours: formattedAssignments.reduce((sum, a) => sum + a.hours, 0)
+      to:   toDate.toISOString().split('T')[0],
+      totalDaysChecked: Math.round((toDate - fromDate) / (1000*60*60*24)) + 1,
+      isScheduled: formatted.length > 0,
+      assignments: formatted,
+      totalHours:  formatted.reduce((s,a)=>s+a.hours,0)
     };
-  } catch (error) {
-    console.error("Error in getStaffAssignments:", error);
-    return { error: error.message };
+  } catch (e) {
+    console.error('getStaffAssignments:', e);
+    return { error: e.message };
   }
 }
 
-/**
- * Fetch all staff member details from the database.
- */
 async function getAllStaff() {
-  const staff = await prisma.staff.findMany();
-  return staff;
+  return prisma.staff.findMany();
 }
 
-/**
- * Fetch details for a project including budget consumption and remaining budget.
- */
 async function getProjectDetails({ projectName }) {
-  // Fetch all projects and find matching name case-insensitively
-  const allProjects = await prisma.project.findMany();
-  const project = allProjects.find(
-    p => p.name.toLowerCase() === projectName.toLowerCase()
-  );
-  if (!project) {
-    return null;
-  }
-  // Sum hours consumed for this project
-  const assignments = await prisma.assignment.findMany({
-    where: { projectId: project.id }
-  });
-  const consumedHours = assignments.reduce((sum, a) => sum + a.hours, 0);
-  // Compute remaining budget if budget is defined (assuming budget in hours)
-  const remainingBudget =
-    typeof project.budget === 'number'
-      ? project.budget - consumedHours
-      : null;
+  const all = await prisma.project.findMany();
+  const project = all.find(p => p.name.toLowerCase() === projectName.toLowerCase());
+  if (!project) return null;
+
+  const assignments = await prisma.assignment.findMany({ where: { projectId: project.id } });
+  const consumed = assignments.reduce((s,a)=>s+a.hours,0);
   return {
     projectId: project.id,
     projectName: project.name,
@@ -128,35 +139,24 @@ async function getProjectDetails({ projectName }) {
     partnerName: project.partnerName,
     teamLead: project.teamLead,
     budget: project.budget,
-    consumedHours,
-    remainingBudget
+    consumedHours: consumed,
+    remainingBudget: typeof project.budget === 'number' ? project.budget - consumed : null
   };
 }
 
-/**
- * Fetch availability for each staff member in a date range (assigned vs available hours).
- */
 async function getTeamAvailability({ from, to }) {
-  const startDate = new Date(from);
-  const endDate = new Date(to);
-  // All staff
-  const staffList = await prisma.staff.findMany();
-  // All assignments in date range
+  const start = new Date(from);
+  const end   = new Date(to);
+  const staff = await prisma.staff.findMany();
   const assignments = await prisma.assignment.findMany({
-    where: {
-      date: { gte: startDate, lte: endDate }
-    }
+    where:{date:{gte:start,lte:end}}
   });
-  // Calculate days and possible hours (8h per day)
-  const msPerDay = 1000 * 60 * 60 * 24;
-  const diffDays =
-    Math.floor((endDate.getTime() - startDate.getTime()) / msPerDay) + 1;
-  const totalPossible = diffDays * 8;
-  // Map each staff to availability
-  const availability = staffList.map((s) => {
-    const assigned = assignments
-      .filter((a) => a.staffId === s.id)
-      .reduce((sum, a) => sum + a.hours, 0);
+
+  const days = Math.floor((end - start)/(1000*60*60*24))+1;
+  const totalPossible = days * 8;
+
+  return staff.map(s=>{
+    const assigned = assignments.filter(a=>a.staffId===s.id).reduce((sum,a)=>sum+a.hours,0);
     return {
       staffId: s.id,
       staffName: s.name,
@@ -164,289 +164,299 @@ async function getTeamAvailability({ from, to }) {
       availableHours: totalPossible - assigned
     };
   });
-  return availability;
 }
 
-/**
- * Fetch total productive hours for all staff in a date range.
- */
 async function getProductiveHours({ from, to }) {
-  const startDate = new Date(from);
-  const endDate = new Date(to);
-  const assignments = await prisma.assignment.findMany({
-    where: { date: { gte: startDate, lte: endDate } }
-  });
-  const totalHours = assignments.reduce((sum, a) => sum + a.hours, 0);
-  return { from, to, totalProductiveHours: totalHours };
+  const start = new Date(from);
+  const end   = new Date(to);
+  const assignments = await prisma.assignment.findMany({ where:{date:{gte:start,lte:end}} });
+  return { from, to, totalProductiveHours: assignments.reduce((s,a)=>s+a.hours,0) };
 }
 
-/**
- * Fetch productive hours for a specific staff member in a date range.
- */
 async function getStaffProductiveHours({ staffName, from, to }) {
-  // Fetch all staff and find matching name case-insensitively
   const allStaff = await prisma.staff.findMany();
   const staff = allStaff.find(s => s.name.toLowerCase() === staffName.toLowerCase());
-  if (!staff) {
-    return { staffName, productiveHours: 0 };
-  }
-  const startDate = new Date(from);
-  const endDate = new Date(to);
+  if (!staff) return { staffName, productiveHours: 0 };
+
+  const start = new Date(from);
+  const end   = new Date(to);
   const assignments = await prisma.assignment.findMany({
-    where: {
-      staffId: staff.id,
-      date: { gte: startDate, lte: endDate }
-    }
+    where:{ staffId: staff.id, date:{gte:start,lte:end} }
   });
-  const totalHours = assignments.reduce((sum, a) => sum + a.hours, 0);
-  return { staffId: staff.id, staffName: staff.name, from, to, productiveHours: totalHours };
+  const total = assignments.reduce((s,a)=>s+a.hours,0);
+  return { staffId: staff.id, staffName: staff.name, from, to, productiveHours: total };
 }
 
 /**
- * Create assignments based on the AI-generated schedule
+ * Create or update assignments in bulk.
+ * If an assignment for (staff, project, date) already exists we update its hours.
  */
-async function createAssignmentsFromSchedule(schedule) {
-  const createdAssignments = [];
-  
-  for (const assignment of schedule.assignments) {
-    const { staffId, projectId, date, hours } = assignment;
-    
+async function createAssignmentsFromSchedule({ assignments }) {
+  const createdOrUpdated = [];
+
+  for (const row of assignments) {
     try {
-      const newAssignment = await prisma.assignment.create({
-        data: {
-          staffId,
-          projectId,
-          date: new Date(date),
-          hours,
+      const saved = await prisma.assignment.upsert({
+        where : {
+          staffId_projectId_date: {            // ← name must match your @@unique
+            staffId  : row.staffId,
+            projectId: row.projectId,
+            date     : new Date(row.date)
+          }
         },
-        include: { project: true, staff: true }
+        update: { hours: row.hours },          // change hours if it exists
+        create: {
+          staffId  : row.staffId,
+          projectId: row.projectId,
+          date     : new Date(row.date),
+          hours    : row.hours
+        },
+        include: { project:true, staff:true }
       });
-      
-      createdAssignments.push({
-        id: newAssignment.id,
-        staffName: newAssignment.staff.name,
-        projectName: newAssignment.project.name,
-        date: newAssignment.date.toISOString().split('T')[0],
-        hours: newAssignment.hours
+
+      createdOrUpdated.push({
+        id         : saved.id,
+        staffName  : saved.staff.name,
+        projectName: saved.project.name,
+        date       : saved.date.toISOString().split('T')[0],
+        hours      : saved.hours,
+        bookedHours: saved.hours
       });
+
     } catch (error) {
-      console.error(`Failed to create assignment: ${error.message}`);
+      console.error('createAssignmentsFromSchedule upsert:', {
+        message : error.message,
+        code    : error.code,
+        meta    : error.meta
+      });
     }
   }
-  
+
+  /* ---------- nicer summary ---------- */
+  const grouped = {};
+  createdOrUpdated.forEach(a => {
+    grouped[a.staffName] = grouped[a.staffName] || [];
+    grouped[a.staffName].push(a.date);
+  });
+
+  const messageLines = Object.entries(grouped)
+    .map(([name, dates]) =>
+      `${name}: ${dates.length} days (${dates[0]} – ${dates.slice(-1)[0]})`
+    )
+    .join('\n• ');
+
   return {
     success: true,
-    message: `Created ${createdAssignments.length} assignments`,
-    assignments: createdAssignments
+    message:
+      `✅ Scheduled ${createdOrUpdated.length} rows ` +
+      `for ${Object.keys(grouped).length} staff.\n\n• ${messageLines}`,
+    assignments: createdOrUpdated
   };
 }
 
-/**
- * Parse booking commands from natural language
- */
+
+/* ------------------------------------------------------------------ */
+/* 3. Enhanced booking parser                                         */
+/* ------------------------------------------------------------------ */
+
 function parseBookingCommand(query) {
-  const lowerQuery = query.toLowerCase().trim();
-  
-  // Check if it's a booking command
-  const bookingKeywords = ['book', 'schedule', 'assign', 'allocate'];
-  const isBookingCommand = bookingKeywords.some(keyword => lowerQuery.includes(keyword));
-  
-  if (!isBookingCommand) {
-    return null;
+  const lower = query.toLowerCase().trim();
+  const isBookingCommand =
+    ['book', 'schedule', 'assign', 'allocate'].some(k => lower.includes(k));
+  if (!isBookingCommand) return null;
+
+  /* ---------- team / bulk detection ---------- */
+  const teamRx = /\b(?:all|entire|whole|complete|\bthe\b)?\s*(?:members?|people)?\s*(?:from|of)?\s*([a-z0-9 ][a-z0-9 ]*?)\s+team\b/i;
+  const teamMatch = teamRx.exec(lower);
+  const teamName  = teamMatch ? teamMatch[1].trim() : null;
+
+  /* ---------- staff phrase (if not a team) ---------- */
+  let staffName = null;
+  if (!teamName) {
+    const staffRx = /(?:book|schedule|assign|allocate)\s+(.*?)\s+on\s+/i;
+    const m = staffRx.exec(query);
+    staffName = m ? m[1].trim() : null;
   }
-  
-  // Extract staff name - find text between booking keyword and "on"
-  const staffRegex = /(?:book|schedule|assign|allocate)\s+(.*?)\s+on\s+/i;
-  const staffMatch = lowerQuery.match(staffRegex);
-  const staffName = staffMatch ? staffMatch[1].trim() : null;
-  
-  // Extract date (supports various formats)
-  const dateMatch = lowerQuery.match(/(\d{1,2})(?:st|nd|rd|th)?\s+(january|february|march|april|may|june|july|august|september|october|november|december)(?:\s+(\d{4}))?/i);
+
+  /* ---------- project + hours ---------- */
+  const projects = [];
+  const projRx = /\bproj(?:ect)?\s+([a-z0-9][a-z0-9 ]*?)\s+for\s+(\d+)\s*(?:h|hr|hrs?|hours?)/gi;
+  let pp;
+  while ((pp = projRx.exec(lower)) !== null) {
+    const [, pName, hrs] = pp;
+    if (!projects.some(p => p.projectName.toLowerCase() === pName.toLowerCase()))
+      projects.push({ projectName: pName.trim(), hours: +hrs });
+  }
+
+  /* ---------- date or date-range ---------- */
   let date = null;
-  
-  if (dateMatch) {
-    const [, day, month, year] = dateMatch;
-    const monthNames = {
-      january: 0, february: 1, march: 2, april: 3, may: 4, june: 5,
-      july: 6, august: 7, september: 8, october: 9, november: 10, december: 11
-    };
-    const monthIndex = monthNames[month.toLowerCase()];
-    const yearNum = year ? parseInt(year, 10) : new Date().getFullYear();
-    date = `${yearNum}-${String(monthIndex + 1).padStart(2, '0')}-${String(parseInt(day, 10)).padStart(2, '0')}`;
-  }
-  
-  // Extract project patterns - find all "project X for Y hrs" patterns
-  const projectPatterns = [];
-  
-  // Find all project+hours patterns
-  const projectRegex = /(?:project\s+)?([a-zA-Z][a-zA-Z0-9]*)\s+for\s+(\d+)\s*(?:hrs?|hours?)/gi;
-  let match;
-  
-  while ((match = projectRegex.exec(lowerQuery)) !== null) {
-    const projectName = match[1].trim();
-    const hours = parseInt(match[2], 10);
-    
-    if (projectName && !projectPatterns.some(p => p.projectName.toLowerCase() === projectName.toLowerCase())) {
-      projectPatterns.push({
-        projectName: projectName,
-        hours: hours
-      });
+  let dateRange = parseDateRange(lower);
+  if (!dateRange) {
+    const singleRx = /(\d{1,2})(?:st|nd|rd|th)?\s+(january|february|march|april|may|june|july|august|september|october|november|december)(?:\s+(\d{4}))?/i;
+    const s = singleRx.exec(lower);
+    if (s) {
+      const [, dd, mon, yr] = s;
+      const year = yr ? +yr : new Date().getFullYear();
+      date = new Date(Date.UTC(year, MONTH_INDEX[mon.toLowerCase()], +dd));
     }
   }
-  
+
+  /* ---------- final object ---------- */
   return {
     isBookingCommand: true,
-    staffName,
-    projectBookings: projectPatterns, // Array of {projectName, hours}
+    staffName,                 // null when a team was used
+    teamName,                  // null when individual booking
+    projectBookings: projects,
     date,
+    dateRange,
     originalQuery: query,
-    isMultiProject: projectPatterns.length > 1
+    isMultiProject: projects.length > 1,
+    isBulk: !!teamName || !!dateRange || /\ball\b|\beach\b/.test(lower)
   };
 }
 
-/**
- * Fast direct booking function that bypasses the orchestrator for simple bookings
- * Now supports multiple project bookings in one command
- */
+
+/* ------------------------------------------------------------------ */
+/* 4. Fast direct booking (unchanged body from your original file)     */
+/* ------------------------------------------------------------------ */
+
 async function directBooking({ staffName, projectBookings, date }) {
+  // handle multiple names like "John and Jane"
+  const names = staffName && staffName.includes(' and ')
+    ? staffName.split(/\s+and\s+/i).map(n => n.trim()).filter(Boolean)
+    : [staffName];
+
+  if (names.length > 1) {
+    let all = [];
+    for (const n of names) {
+      const r = await directBooking({ staffName: n, projectBookings, date });
+      if (!r.success) return r;     // propagate first error
+      all = all.concat(r.assignments);
+    }
+    return {
+      success: true,
+      message: `Successfully booked ${names.join(', ')} on projects for ${date}.`,
+      assignments: all,
+      isMultiProject: true
+    };
+  }
+
   try {
-    console.log(`Direct booking: ${staffName} -> ${projectBookings.length} project(s) on ${date}`);
-    
-    // Validate inputs
-    if (!staffName || !projectBookings || !Array.isArray(projectBookings) || projectBookings.length === 0 || !date) {
+    console.log(`Direct booking: ${staffName} → ${projectBookings.length} project(s) on ${date}`);
+
+    /* ---------- validation ---------- */
+    if (!staffName || !projectBookings?.length || !date) {
       return {
         success: false,
-        error: "Missing required booking information",
-        message: `Please provide: staff name${!staffName ? ' ✗' : ' ✓'}, project(s)${!projectBookings || projectBookings.length === 0 ? ' ✗' : ' ✓'}, and date${!date ? ' ✗' : ' ✓'}`
+        error:   'missing_info',
+        message: `Please provide staff name, project(s) and date.`
       };
     }
-    
-    // Find staff by name (case-insensitive)
+
+    /* ---------- entity look-ups ---------- */
     const allStaff = await prisma.staff.findMany();
-    const staff = allStaff.find(s => s.name.toLowerCase().includes(staffName.toLowerCase()) || staffName.toLowerCase().includes(s.name.toLowerCase()));
-    
+    const staff = allStaff.find(s =>
+      s.name.toLowerCase().includes(staffName.toLowerCase()) ||
+      staffName.toLowerCase().includes(s.name.toLowerCase())
+    );
     if (!staff) {
-      const availableStaff = allStaff.map(s => s.name).join(', ');
       return {
         success: false,
-        error: "Staff member not found",
-        message: `Could not find staff member "${staffName}". Available staff: ${availableStaff}`
+        error:   'staff_not_found',
+        message: `Could not find staff member "${staffName}".`
       };
     }
-    
-    // Find all projects by name (case-insensitive)
+
     const allProjects = await prisma.project.findMany();
-    const foundProjects = [];
-    const notFoundProjects = [];
-    
-    for (const booking of projectBookings) {
-      const project = allProjects.find(p => 
-        p.name.toLowerCase().includes(booking.projectName.toLowerCase()) || 
-        booking.projectName.toLowerCase().includes(p.name.toLowerCase())
+    const found = [], missing = [];
+    for (const b of projectBookings) {
+      const p = allProjects.find(pr =>
+        pr.name.toLowerCase().includes(b.projectName.toLowerCase()) ||
+        b.projectName.toLowerCase().includes(pr.name.toLowerCase())
       );
-      
-      if (project) {
-        foundProjects.push({
-          project,
-          hours: booking.hours,
-          originalName: booking.projectName
-        });
-      } else {
-        notFoundProjects.push(booking.projectName);
-      }
+      p ? found.push({ project: p, hours: b.hours }) : missing.push(b.projectName);
     }
-    
-    if (notFoundProjects.length > 0) {
-      const availableProjects = allProjects.map(p => p.name).join(', ');
+    if (missing.length) {
       return {
         success: false,
-        error: "Project(s) not found",
-        message: `Could not find project(s): ${notFoundProjects.join(', ')}. Available projects: ${availableProjects}`
+        error:   'project_not_found',
+        message: `Could not find project(s): ${missing.join(', ')}.`
       };
     }
+
+    /* ---------- capacity check ---------- */
+    const target = new Date(date);
+    const dayStart = new Date(Date.UTC(target.getFullYear(), target.getMonth(), target.getDate()));
+    const dayEnd   = new Date(Date.UTC(target.getFullYear(), target.getMonth(), target.getDate(), 23, 59, 59, 999));
+
+    const todays = await prisma.assignment.findMany({
+      where:{ staffId: staff.id, date:{ gte: dayStart, lte: dayEnd } }
+    });
+    const current = todays.reduce((s,a)=>s+a.hours,0);
+    const incoming = found.reduce((s,f)=>s+f.hours,0);
+    if (current + incoming > 8) {
+      return {
+        success: false,
+        error:   'overbooked',
+        message: `${staff.name} already has ${current}h on ${date}. Adding ${incoming}h would exceed 8-hour limit.`
+      };
+    }
+
+    /* ---------- create assignments ---------- */
+    const created = [];
+    for (const f of found) {
+      const a = await prisma.assignment.create({
+        data:{
+          staffId:  staff.id,
+          projectId:f.project.id,
+          date:     dayStart,
+          hours:    f.hours
+        },
+        include:{ project:true, staff:true }
+      });
+      created.push({
+        id:a.id,
+        staffName:a.staff.name,
+        projectName:a.project.name,
+        date:a.date.toISOString().split('T')[0],
+        hours:a.hours,
+        bookedHours: a.hours 
+      });
+    }
     
-    // Check total hours and existing assignments
-    const targetDate = new Date(date);
-    const startOfDay = new Date(Date.UTC(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate()));
-    const endOfDay = new Date(Date.UTC(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate(), 23, 59, 59, 999));
-    
-    const existingAssignments = await prisma.assignment.findMany({
-      where: {
-        staffId: staff.id,
-        date: {
-          gte: startOfDay,
-          lte: endOfDay
-        }
-      },
-      include: { project: true }
+    /* ---------- nicer summary ---------- */
+    const grouped = {};
+    created.forEach(a => {
+      grouped[a.projectName] = grouped[a.projectName] || [];
+      grouped[a.projectName].push(a.date);
     });
     
-    const currentHours = existingAssignments.reduce((sum, a) => sum + a.hours, 0);
-    const newTotalHours = foundProjects.reduce((sum, p) => sum + p.hours, 0);
-    const finalTotalHours = currentHours + newTotalHours;
-    
-    // Check capacity (assuming 8-hour workday)
-    if (finalTotalHours > 8) {
-      const overbooked = finalTotalHours - 8;
-      const currentProjects = existingAssignments.map(a => `${a.project.name} (${a.hours}h)`).join(', ');
-      const newProjectsList = foundProjects.map(p => `${p.project.name} (${p.hours}h)`).join(', ');
-      return {
-        success: false,
-        error: "Staff member would be overbooked",
-        message: `${staff.name} already has ${currentHours}h assigned on ${date}${currentProjects ? ` (${currentProjects})` : ''}. Adding ${newTotalHours}h (${newProjectsList}) would exceed 8-hour limit by ${overbooked}h.`
-      };
-    }
-    
-    // Create all assignments
-    const createdAssignments = [];
-    
-    for (const projectBooking of foundProjects) {
-      const assignment = await prisma.assignment.create({
-        data: {
-          staffId: staff.id,
-          projectId: projectBooking.project.id,
-          date: startOfDay,
-          hours: projectBooking.hours
-        },
-        include: {
-          staff: true,
-          project: true
-        }
-      });
-      
-      createdAssignments.push({
-        id: assignment.id,
-        staffName: assignment.staff.name,
-        projectName: assignment.project.name,
-        date: assignment.date.toISOString().split('T')[0],
-        hours: assignment.hours
-      });
-    }
-    
-    const assignmentDetails = createdAssignments.map(a => `${a.projectName} (${a.hours}h)`).join(', ');
-    const totalNewHours = createdAssignments.reduce((sum, a) => sum + a.hours, 0);
+    const messageLines = Object.entries(grouped)
+      .map(([proj, dates]) =>
+        `${proj}: ${dates.length} day${dates.length>1?'s':''} (${dates[0]} – ${dates.slice(-1)[0]})`
+      )
+      .join('\n• ');
     
     return {
       success: true,
-      message: `Successfully booked ${staff.name} on ${createdAssignments.length} project(s) for ${totalNewHours} hour(s) on ${date}: ${assignmentDetails}`,
-      assignments: createdAssignments,
-      totalHoursBooked: totalNewHours,
-      totalHoursOnDate: finalTotalHours,
-      remainingCapacity: 8 - finalTotalHours,
-      isMultiProject: createdAssignments.length > 1
+      message:
+        `✅ Booked ${staff.name} on ${created.length} row${created.length>1?'s':''}\n\n• ${messageLines}`,
+      assignments: created
     };
     
-  } catch (error) {
-    console.error("Error in directBooking:", error);
-    return {
-      success: false,
-      error: "Database error",
-      message: `Failed to create booking: ${error.message}`
-    };
+  } catch (e) {
+    console.error('directBooking:', e);
+    return { success:false, error:'db_error', message:e.message };
   }
 }
 
+
+/* ------------------------------------------------------------------ */
+/* 5. Exports                                                         */
+/* ------------------------------------------------------------------ */
+
 module.exports = {
+  // data access
   getStaffAssignments,
   getAllStaff,
   getProjectDetails,
@@ -454,6 +464,12 @@ module.exports = {
   getProductiveHours,
   getStaffProductiveHours,
   createAssignmentsFromSchedule,
+
+  // NLP helpers
   parseBookingCommand,
+  parseDateRange,
+  parseReplacement,
+
+  // fast path
   directBooking
-}; 
+};

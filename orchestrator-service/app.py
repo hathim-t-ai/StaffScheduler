@@ -12,6 +12,8 @@ from processing import validate_pipeline_output
 from typing import Optional, Dict, Any, List, Union
 from collections import defaultdict
 import traceback
+from fastapi.staticfiles import StaticFiles
+from tools.report_tool import ReportTool, ReportArgs
 
 # Import our RAG tools
 from tools.tool_registry import tool_registry
@@ -527,6 +529,25 @@ async def list_crews():
             "inputs": ["query"]
         }
     }
+
+# Mount static files for report access
+static_dir = os.path.join(os.path.dirname(__file__), 'static')
+reports_dir = os.path.join(static_dir, 'reports')
+os.makedirs(reports_dir, exist_ok=True)
+app.mount('/static', StaticFiles(directory=static_dir), name='static')
+
+# Generate report endpoint
+class GenerateReportRequest(BaseModel):
+    start: str
+    end: str
+    fmt: str = 'pdf'
+
+@app.post('/generate_report')
+async def generate_report_endpoint(req: GenerateReportRequest):
+    tool = ReportTool()
+    # Call the tool's run method
+    result = tool._run(req.start, req.end, req.fmt)
+    return result
 
 if __name__ == "__main__":
     uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True) 

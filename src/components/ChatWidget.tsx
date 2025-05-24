@@ -103,6 +103,9 @@ const ChatWidget: React.FC = () => {
   
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
+  // Store the last agent payload for confirmation flows
+  const [lastAgentPayload, setLastAgentPayload] = useState<{ query: string; mode: 'agent' } | null>(null);
+
   // Save messages to localStorage whenever messages change
   useEffect(() => {
     try {
@@ -216,6 +219,23 @@ const ChatWidget: React.FC = () => {
   const sendMessage = async () => {
     if (!input.trim()) return;
 
+    // In Ask mode, block task execution commands
+    if (mode === 'ask') {
+      const execPattern = /\b(book|schedule|assign|remove|delete|cancel)\b/i;
+      if (execPattern.test(input.trim())) {
+        const botMsg: Message = {
+          sender: 'bot',
+          text: 'Switch to Agent mode to execute scheduling tasks.',
+          timestamp: new Date(),
+          type: 'text'
+        };
+        setMessages(prev => [...prev, botMsg]);
+        setInput('');
+        setLoading(false);
+        return;
+      }
+    }
+
     const userMsg: Message = { 
       sender: 'user', 
       text: input,
@@ -231,18 +251,20 @@ const ChatWidget: React.FC = () => {
         ? '/api/ask'
         : '/api/orchestrate';
 
+      // Determine payload, supporting simple confirmation in agent mode
       let payload;
-      
-      if (mode === 'ask') {
-        payload = { 
-          query: input,
-          mode: 'ask'
-        };
+      const confirmationPattern = /^(yes|yep|confirm|proceed|go ahead|book them)/i;
+      const isConfirmation = mode === 'agent' && confirmationPattern.test(input.trim());
+      if (isConfirmation && lastAgentPayload) {
+        // Reuse previous agent payload on confirmation
+        payload = lastAgentPayload;
+      } else if (mode === 'ask') {
+        payload = { query: input, mode: 'ask' };
       } else {
-        payload = {
-          query: input,
-          mode: 'agent'
-        };
+        // Build a typed agent payload
+        const agentPayload = { query: input, mode: 'agent' } as const;
+        setLastAgentPayload(agentPayload);
+        payload = agentPayload;
       }
       
       const res = await axios.post(endpoint, payload);

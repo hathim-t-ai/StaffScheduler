@@ -40,6 +40,9 @@ model Assignment {
   date       DateTime
   hours      Int
   createdAt  DateTime @default(now())
-  staff      Staff    @relation(fields: [staffId], references: [id])
+
+  staff      Staff    @relation(fields: [staffId],   references: [id])
   project    Project  @relation(fields: [projectId], references: [id])
+
+  @@unique([staffId, projectId, date], name: "staffId_projectId_date")
 }

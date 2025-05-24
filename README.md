@@ -10,6 +10,8 @@ A web-based staff scheduling SaaS application for managing workforce allocation,
 - **Analytics Dashboard**: Resource utilization and project performance metrics
 - **Settings Page**: Configurable rules and system preferences
 - **AI Chatbot**: Intelligent assistant for information retrieval and scheduling
+- **PDF Scheduling Report**: Generate weekly or monthly PDF schedule reports via CrewAI agent with PDF rendering.
+- **Bulk Booking Pipeline**: Book multiple staff assignments via chat widget using natural language commands.
 
 ## Technical Stack
 

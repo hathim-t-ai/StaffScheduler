@@ -21,6 +21,7 @@ import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Title, Toolti
 import { Bar } from 'react-chartjs-2';
 import ChartDataLabels from 'chartjs-plugin-datalabels';
 import CalendarTodayIcon from '@mui/icons-material/CalendarToday';
+import axios from 'axios';
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend, ChartDataLabels);
 
@@ -106,6 +107,40 @@ const AnalyticsPage: React.FC = () => {
 
         {/* Timeframe Filters */}
         <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2, gap: 2 }}>
+          {/* Generate PDF Report Button */}
+          <Button
+            variant="contained"
+            color="primary"
+            onClick={async () => {
+              const rangeFrom = timeframe === 'overall' ? '' : startDate;
+              const rangeTo = timeframe === 'overall' ? '' : (() => {
+                const start = new Date(startDate);
+                return timeframe === 'weekly'
+                  ? format(addDays(start, 6), 'yyyy-MM-dd')
+                  : format(addMonths(start, 1), 'yyyy-MM-dd');
+              })();
+              try {
+                const response = await axios.post(
+                  '/api/report',
+                  { from: startDate, to: rangeTo || startDate },
+                  { responseType: 'blob' }
+                );
+                const blob = new Blob([response.data], { type: 'application/pdf' });
+                const url = window.URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = `schedule_${startDate}_to_${rangeTo || startDate}.pdf`;
+                document.body.appendChild(link);
+                link.click();
+                link.remove();
+              } catch (err) {
+                console.error('Failed to generate report:', err);
+              }
+            }}
+            sx={{ ml: 2 }}
+          >
+            Generate Report
+          </Button>
           {['weekly', 'monthly', 'overall'].map((key) => (
             <Button
               key={key}

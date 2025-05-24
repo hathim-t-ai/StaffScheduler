@@ -221,6 +221,66 @@ The platform allows users to upload data from external sources (Excel, CSV, Goog
 #### Navigation
 - Include a button/link to navigate back to the Landing Page
 
+### 5.6 PDF "Scheduling Report" agent
+
+#### Layer: Prisma / REST
+- Implement GET `/api/analytics/range?from=<start>&to=<end>` endpoint returning JSON summary (5-line SQL).
+
+#### Layer: Python service
+- File: `orchestrator-service/tools/report_tool.py`
+```python
+class ReportTool(BaseTool):
+  name = "generate_report"
+  args_schema = ReportArgs
+  def _run(self, start: str, end: str, fmt: str = "pdf"):
+    data = requests.get(f"{API}/analytics/range?from={start}&to={end}").json()
+    pdf_path = render_pdf(data, start, end)  # use WeasyPrint or ReportLab
+    return {"url": f"/static/reports/{os.path.basename(pdf_path)}"}
+```
+- `render_pdf()` builds a simple two-page PDF: KPI cards and assignment table.
+
+#### Layer: CrewAI
+- Add agent to `orchestrator-service/agents.yaml`:
+```yaml
+- name: report_generator
+  role: Report Generator
+  goal: Provide a concise weekly or monthly schedule PDF.
+  tool: generate_report
+```
+- Add task in `orchestrator-service/tasks.yaml` that calls `generate_report`.
+
+#### Layer: Express proxy
+- New route `POST /api/report` that invokes orchestrator and returns `{ url }`.
+
+#### Layer: Frontend (React)
+- Add "Generate report for ⌄" button in Analytics page:
+```typescript
+await axios.post('/api/report', { from, to })
+  .then(({ data }) => window.open(data.url));
+```
+
+### 5.7 Bulk-Booking pipeline
+
+#### Step 1: Detect intent
+- Extend `parseBookingCommand` to detect plural keywords (`all`, `team`, `each`) and return `{ mode: "bulk", ... }`.
+
+#### Step 2: CrewAI agents
+- Team-Lookup Agent: calls `GET /api/staff?team=<team>`.
+- Bulk-Booking Agent: loops through members × projects × dates to build assignments.
+
+#### Step 3: New Tool
+- File: `orchestrator-service/tools/bulk_booking_tool.py`
+```python
+class BulkBookingTool(BaseTool):
+  name = "bulk_booking"
+  def _run(self, assignments: List[dict]):
+    resp = requests.post(f"{API}/api/assignments/bulk", json=assignments)
+    return resp.json()
+```
+
+#### Step 4: UX
+- Chat widget streams back "✅ 240 assignments created for 12 staff across Projects A & B (26 May → 14 Jun)." plus a "View in calendar" link triggering a `refreshCalendar` event.
+
 ## 6. User stories and acceptance criteria
 
 ### Landing Page

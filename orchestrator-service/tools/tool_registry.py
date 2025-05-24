@@ -6,6 +6,7 @@ from .staff_api_tool import StaffAPITool
 from .project_api_tool import ProjectAPITool
 from .availability_tool import AvailabilityTool
 from .assignment_creation_tool import AssignmentCreationTool
+from .report_tool import ReportTool
 
 
 class ToolRegistry:
@@ -22,6 +23,7 @@ class ToolRegistry:
             'project_api': ProjectAPITool(),
             'availability': AvailabilityTool(),
             'assignment_creation': AssignmentCreationTool(),
+            'generate_report': ReportTool(),
         }
     
     def get_tool(self, tool_name: str):

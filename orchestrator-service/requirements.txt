@@ -8,4 +8,5 @@ openai>=1.0.0
 pytest
 pytest-asyncio
 pyyaml
-python-multipart 
+python-multipart
+reportlab>=3.6.0 

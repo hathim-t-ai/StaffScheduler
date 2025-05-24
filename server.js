@@ -1,16 +1,24 @@
+/************************************************************
+ *  StaffScheduler – unified Express API & chat service
+ ***********************************************************/
 require('dotenv').config();
-// Startup sanity checks for required environment variables
+
+/* ---------- sanity checks ---------- */
 if (!process.env.OPENAI_API_KEY) {
-  console.error('Error: OPENAI_API_KEY environment variable is not set. Please add it to your .env file.');
-  process.exit(1);
+  console.error('Error: OPENAI_API_KEY is not set.'); process.exit(1);
 }
 if (!process.env.DATABASE_URL) {
-  console.error('Error: DATABASE_URL environment variable is not set. Please add it to your .env file.');
-  process.exit(1);
+  console.error('Error: DATABASE_URL is not set.');   process.exit(1);
 }
+
+/* ---------- imports ---------- */
 const express = require('express');
-const cors = require('cors');
-const OpenAI = require('openai');
+const cors    = require('cors');
+const OpenAI  = require('openai');
+const axios   = require('axios');
+const path    = require('path');
+const prisma  = require('./prismaClient');
+
 const {
   getStaffAssignments,
   getAllStaff,
@@ -20,18 +28,20 @@ const {
   getStaffProductiveHours,
   createAssignmentsFromSchedule,
   parseBookingCommand,
+  parseDateRange,
+  parseReplacement,
   directBooking
 } = require('./chatFunctions');
-const prisma = require('./prismaClient');
-const axios = require('axios');
 
+/* ---------- basic app ---------- */
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const openai    = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const chatModel = process.env.OPENAI_CHAT_MODEL || 'gpt-4o';
 
-// Map function names to implementations for dynamic invocation
+/* ---------- OpenAI function-calling ---------- */
 const functionMapping = {
   getStaffAssignments,
   getAllStaff,
@@ -41,7 +51,6 @@ const functionMapping = {
   getStaffProductiveHours
 };
 
-// Define available functions for OpenAI function calling
 const functionDefinitions = [
   {
     name: 'getStaffAssignments',
@@ -50,611 +59,488 @@ const functionDefinitions = [
       type: 'object',
       properties: {
         staffName: { type: 'string' },
-        from: { type: 'string', format: 'date' },
-        to: { type: 'string', format: 'date' }
+        from:      { type: 'string', format:'date' },
+        to:        { type: 'string', format:'date' }
       },
-      required: ['staffName', 'from', 'to']
+      required: ['staffName','from','to']
     }
   },
-  {
-    name: 'getAllStaff',
-    description: 'Get list of all staff members with details',
-    parameters: {
-      type: 'object',
-      properties: {},
-      required: []
-    }
-  },
+  { name:'getAllStaff', description:'Get list of all staff', parameters:{ type:'object', properties:{}, required:[] } },
   {
     name: 'getProjectDetails',
-    description: 'Get details for a project including total and remaining budgeted hours',
+    description: 'Get project details incl. remaining budget',
     parameters: {
-      type: 'object',
-      properties: {
-        projectName: { type: 'string' }
-      },
-      required: ['projectName']
+      type:'object',
+      properties:{ projectName:{ type:'string' } },
+      required:['projectName']
     }
   },
   {
-    name: 'getTeamAvailability',
-    description: 'Get team availability between two dates (assigned vs available hours)',
-    parameters: {
-      type: 'object',
-      properties: {
-        from: { type: 'string', format: 'date' },
-        to: { type: 'string', format: 'date' }
+    name:'getTeamAvailability',
+    description:'Get team availability between two dates',
+    parameters:{
+      type:'object',
+      properties:{
+        from:{ type:'string', format:'date' },
+        to:  { type:'string', format:'date' }
       },
-      required: ['from', 'to']
+      required:['from','to']
     }
   },
   {
-    name: 'getProductiveHours',
-    description: 'Get total productive hours for all staff between two dates',
-    parameters: {
-      type: 'object',
-      properties: {
-        from: { type: 'string', format: 'date' },
-        to: { type: 'string', format: 'date' }
+    name:'getProductiveHours',
+    description:'Get total productive hours for all staff',
+    parameters:{
+      type:'object',
+      properties:{
+        from:{ type:'string', format:'date' },
+        to:  { type:'string', format:'date' }
       },
-      required: ['from', 'to']
+      required:['from','to']
     }
   },
   {
-    name: 'getStaffProductiveHours',
-    description: 'Get productive hours for a staff member between two dates',
-    parameters: {
-      type: 'object',
-      properties: {
-        staffName: { type: 'string' },
-        from: { type: 'string', format: 'date' },
-        to: { type: 'string', format: 'date' }
+    name:'getStaffProductiveHours',
+    description:'Get productive hours for a staff member',
+    parameters:{
+      type:'object',
+      properties:{
+        staffName:{ type:'string' },
+        from:{ type:'string', format:'date' },
+        to:  { type:'string', format:'date' }
       },
-      required: ['staffName', 'from', 'to']
+      required:['staffName','from','to']
     }
   }
 ];
 
-// --- Data CRUD endpoints ---
-// Staff CRUD
-app.get('/api/staff', async (req, res) => {
-  const staff = await prisma.staff.findMany();
-  res.json(staff);
-});
-app.post('/api/staff', async (req, res) => {
-  const newStaff = await prisma.staff.create({ data: req.body });
-  res.status(201).json(newStaff);
-});
+/* ============================================================== */
+/*  DATA CRUD – staff / projects / assignments                    */
+/* ============================================================== */
+app.get('/api/staff', async (_ ,res)=>res.json(await prisma.staff.findMany()));
 
-// Update staff
-app.put('/api/staff/:id', async (req, res) => {
-  const { id } = req.params;
-  const updatedStaff = await prisma.staff.update({ where: { id }, data: req.body });
-  res.json(updatedStaff);
-});
-// Delete staff
-app.delete('/api/staff/:id', async (req, res) => {
-  const { id } = req.params;
-  // Delete assignments linked to this staff to avoid foreign key constraint errors
-  await prisma.assignment.deleteMany({ where: { staffId: id } });
-  // Now delete the staff record
-  await prisma.staff.delete({ where: { id } });
+app.post('/api/staff', async (req,res)=>
+  res.status(201).json(await prisma.staff.create({data:req.body}))
+);
+
+app.put('/api/staff/:id', async (req,res)=>
+  res.json(await prisma.staff.update({where:{id:req.params.id},data:req.body}))
+);
+
+app.delete('/api/staff/:id', async (req,res)=>{
+  await prisma.assignment.deleteMany({where:{staffId:req.params.id}});
+  await prisma.staff.delete({where:{id:req.params.id}});
   res.status(204).end();
 });
 
-// Projects CRUD
-app.get('/api/projects', async (req, res) => {
-  const projects = await prisma.project.findMany();
-  res.json(projects);
-});
-app.post('/api/projects', async (req, res) => {
-  const newProject = await prisma.project.create({ data: req.body });
-  res.status(201).json(newProject);
-});
+/* ---------- projects ---------- */
+app.get('/api/projects', async (_ ,res)=>res.json(await prisma.project.findMany()));
 
-// Update project
-app.put('/api/projects/:id', async (req, res) => {
-  const { id } = req.params;
-  const updatedProject = await prisma.project.update({ where: { id }, data: req.body });
-  res.json(updatedProject);
-});
-// Delete project
-app.delete('/api/projects/:id', async (req, res) => {
-  const { id } = req.params;
-  // Delete assignments linked to this project to avoid foreign key constraint errors
-  await prisma.assignment.deleteMany({ where: { projectId: id } });
-  // Now delete the project record
-  await prisma.project.delete({ where: { id } });
+app.post('/api/projects', async (req,res)=>
+  res.status(201).json(await prisma.project.create({data:req.body}))
+);
+
+app.put('/api/projects/:id', async (req,res)=>
+  res.json(await prisma.project.update({where:{id:req.params.id},data:req.body}))
+);
+
+app.delete('/api/projects/:id', async (req,res)=>{
+  await prisma.assignment.deleteMany({where:{projectId:req.params.id}});
+  await prisma.project.delete({where:{id:req.params.id}});
   res.status(204).end();
 });
 
-// Assignments CRUD
-app.get('/api/assignments', async (req, res) => {
-  // Include project details for frontend display
-  const assignments = await prisma.assignment.findMany({ include: { project: true } });
-  const formatted = assignments.map((a) => ({
-    id: a.id,
-    staffId: a.staffId,
-    projectId: a.projectId,
-    date: a.date.toISOString().split('T')[0],
-    hours: a.hours,
-    projectName: a.project.name
-  }));
-  res.json(formatted);
+/* ---------- assignments ---------- */
+app.get('/api/assignments', async (_ ,res)=>{
+  const list = await prisma.assignment.findMany({include:{project:true}});
+  res.json(list.map(a=>({
+    id:a.id,
+    staffId:a.staffId,
+    projectId:a.projectId,
+    date:a.date.toISOString().split('T')[0],
+    hours:a.hours,
+    projectName:a.project.name
+  })));
 });
-app.post('/api/assignments', async (req, res) => {
+
+app.post('/api/assignments', async (req,res)=>{
   const { staffId, projectId, date, hours } = req.body;
-  const newAssignment = await prisma.assignment.create({
-    data: {
-      staffId,
-      projectId,
-      date: new Date(date),
-      hours,
-    },
+  const newA = await prisma.assignment.create({
+    data:{ staffId, projectId, date:new Date(date), hours }
   });
-  res.status(201).json(newAssignment);
+  res.status(201).json(newA);
 });
 
-// Availability endpoint for CrewAI AvailabilityFetcher
-app.get('/api/availability', async (req, res) => {
+app.post('/api/assignments/bulk', async (req,res)=>{
+  try{
+    const result = await prisma.assignment.createMany({data:req.body});
+    res.json({success:true,inserted:result.count});
+  }catch(e){
+    console.error('bulk insert',e);
+    res.status(500).json({error:'bulk_failed',message:e.message});
+  }
+});
+
+app.delete('/api/assignments/range', async (req, res) => {
+  const { from, to, projectId, staffIds } = req.body;   // pick the filters you need
+  try {
+    const where = { date: { gte: new Date(from), lte: new Date(to) } };
+    if (projectId) where.projectId = projectId;
+    if (Array.isArray(staffIds) && staffIds.length) where.staffId = { in: staffIds };
+
+    const { count } = await prisma.assignment.deleteMany({ where });
+    res.json({ success:true, deleted:count });
+  } catch (e) {
+    console.error('/api/assignments/range', e);
+    res.status(500).json({ success:false, error:e.message });
+  }
+});
+
+/* ============================================================== */
+/*  Availability & analytics helpers                               */
+/* ============================================================== */
+app.get('/api/availability', async (req,res)=>{
   const { date } = req.query;
-  
-  // Build a safe UTC date range for the requested day to avoid timezone issues
-  const parsedDate = new Date(date);
-  if (isNaN(parsedDate.getTime())) {
-    return res.status(400).json({ error: "Invalid date format. Please provide a valid date (YYYY-MM-DD)." });
-  }
-  
-  // Compute start-of-day and end-of-day in UTC
-  const startOfDay = new Date(Date.UTC(parsedDate.getUTCFullYear(), parsedDate.getUTCMonth(), parsedDate.getUTCDate()));
-  const endOfDay = new Date(Date.UTC(parsedDate.getUTCFullYear(), parsedDate.getUTCMonth(), parsedDate.getUTCDate(), 23, 59, 59, 999));
-  
-  // Fetch assignments that fall within that UTC day window
-  const assignments = await prisma.assignment.findMany({
-    where: {
-      date: {
-        gte: startOfDay,
-        lte: endOfDay
-      }
-    }
-  });
-  const staffList = await prisma.staff.findMany();
-  const availability = staffList.map((staff) => {
-    const assignedHours = assignments
-      .filter((a) => a.staffId === staff.id)
-      .reduce((sum, a) => sum + a.hours, 0);
-    return {
-      staffId: staff.id,
-      staffName: staff.name,
-      assignedHours,
-      availableHours: Math.max(8 - assignedHours, 0)
-    };
-  });
-  res.json(availability);
+  const parsed = new Date(date);
+  if (isNaN(parsed)) return res.status(400).json({error:'invalid_date'});
+  const start = new Date(Date.UTC(parsed.getUTCFullYear(),parsed.getUTCMonth(),parsed.getUTCDate()));
+  const end   = new Date(Date.UTC(parsed.getUTCFullYear(),parsed.getUTCMonth(),parsed.getUTCDate(),23,59,59,999));
+
+  const assignments = await prisma.assignment.findMany({where:{date:{gte:start,lte:end}}});
+  const staff = await prisma.staff.findMany();
+  res.json(staff.map(s=>{
+    const assigned = assignments.filter(a=>a.staffId===s.id).reduce((sum,a)=>sum+a.hours,0);
+    return { staffId:s.id, staffName:s.name, assignedHours:assigned, availableHours:Math.max(8-assigned,0) };
+  }));
 });
 
-// Orchestration endpoint to integrate CrewAI orchestrator-service
-app.post('/api/orchestrate', async (req, res) => {
-  const { date, query, staffIds, projectIds, hours, mode } = req.body;
-  
-  // FAST DIRECT BOOKING - Handle booking commands directly (millisecond response time) in AGENT mode
-  if (query) {
-    const bookingCommand = parseBookingCommand(query);
-    if (bookingCommand) {
-      try {
-        console.log('Fast booking detected in orchestrate endpoint:', bookingCommand);
-        const startTime = Date.now();
-        
-        const result = await directBooking({
-          staffName: bookingCommand.staffName,
-          projectBookings: bookingCommand.projectBookings,
-          date: bookingCommand.date
-        });
-        
-        const duration = Date.now() - startTime;
-        console.log(`Direct booking completed in ${duration}ms`);
-        
-        if (result.success) {
-          // Return in format expected by agent mode (with resolvedMatches)
-          return res.json({
-            success: true,
-            message: result.message,
-            resolvedMatches: result.assignments.map((a) => ({
-              staffId: a.staffName,
-              staffName: a.staffName,
-              assignedHours: a.hours,
-              date: a.date
-            })),
-            processingTime: `${duration}ms`,
-            booking: result.assignments,
-            isMultiProject: result.isMultiProject
-          });
-        } else {
-          return res.json({ 
-            success: false,
-            error: result.error,
-            message: result.message,
-            processingTime: `${duration}ms`
-          });
-        }
-      } catch (error) {
-        console.error('Fast booking error in orchestrate:', error);
-        return res.json({ 
-          success: false,
-          error: 'booking_error',
-          message: `Booking failed: ${error.message}`
-        });
-      }
-    }
-  }
-  
-  // Build request payload based on provided data
-  const payload = {
-    ...(date && { date }),
-    ...(query && { query }),
-    ...(staffIds && { staffIds }),
-    ...(projectIds && { projectIds }),
-    ...(hours && { hours }),
-    ...(mode && { mode })
-  };
-  
-  // Validate date if provided
-  if (date) {
-    const parsedDate = new Date(date);
-    if (isNaN(parsedDate.getTime())) {
-      return res.status(400).json({ error: "Invalid date format. Please provide a valid date." });
-    }
-  }
-  
-  try {
-    const { data } = await axios.post('http://localhost:8000/orchestrate', payload, {
-      timeout: 5000, // 5 second timeout
-      headers: { 'Content-Type': 'application/json' }
-    });
-    res.json(data);
-  } catch (error) {
-    console.error('Error orchestrating:', error);
-    
-    // Check if it's a connection error or timeout
-    const isConnectionError = error.code === 'ECONNREFUSED' || error.code === 'ECONNRESET' || error.code === 'ECONNABORTED';
-    
-    if (isConnectionError) {
-      // Handle the case where orchestrator might be starting up
-      console.log('Orchestrator service not yet available. It might be starting up...');
-      
-      // Return a user-friendly message
-      return res.status(503).json({ 
-        error: "Orchestrator service starting", 
-        details: "The Python orchestrator service is starting up. Please try again in a few moments.",
-        retryable: true,
-        message: error.message 
-      });
-    }
-    
-    // Return a more informative error for other types of errors
-    res.status(503).json({ 
-      error: "Could not connect to orchestrator service", 
-      details: "There was an issue with the orchestrator service. The service should start automatically with the application.",
-      message: error.message 
-    });
-  }
-});
-
-// Ask endpoint to handle user queries via orchestrator-service
-app.post('/api/ask', async (req, res) => {
-  const { query } = req.body;
-  
-  // Quick deterministic handlers for simple queries (bypass AI to ensure accuracy)
-  const lowerQ = (query || '').toLowerCase().trim();
-  // 1) how many staff members
-  const staffCountPattern = /(how\s+many|number\s+of)\s+staff/;
-  if (staffCountPattern.test(lowerQ)) {
-    try {
-      const count = await prisma.staff.count();
-      return res.json({ content: `There are a total of ${count} staff members.`, type: 'text' });
-    } catch (err) {
-      console.error('Direct count error', err);
-    }
-  }
-  
-  // 2) how many projects
-  const projectCountPattern = /(how\s+many|number\s+of)\s+projects/;
-  if (projectCountPattern.test(lowerQ)) {
-    try {
-      const count = await prisma.project.count();
-      return res.json({ content: `There are a total of ${count} projects added so far.`, type: 'text' });
-    } catch (err) {
-      console.error('Direct project count error', err);
-    }
-  }
-  
-  // 3) FAST DIRECT BOOKING - Handle booking commands directly (millisecond response time)
-  const bookingCommand = parseBookingCommand(query);
-  if (bookingCommand) {
-    try {
-      console.log('Fast booking detected:', bookingCommand);
-      const startTime = Date.now();
-      
-      const result = await directBooking({
-        staffName: bookingCommand.staffName,
-        projectBookings: bookingCommand.projectBookings,
-        date: bookingCommand.date
-      });
-      
-      const duration = Date.now() - startTime;
-      console.log(`Direct booking completed in ${duration}ms`);
-      
-      if (result.success) {
-        return res.json({ 
-          content: result.message,
-          type: 'text',
-          booking: result.assignments,
-          processingTime: `${duration}ms`,
-          isMultiProject: result.isMultiProject
-        });
-      } else {
-        return res.json({ 
-          content: result.message,
-          type: 'text',
-          error: result.error,
-          processingTime: `${duration}ms`
-        });
-      }
-    } catch (error) {
-      console.error('Fast booking error:', error);
-      return res.json({ 
-        content: `Booking failed: ${error.message}`,
-        type: 'text',
-        error: 'booking_error'
-      });
-    }
-  }
-  
-  // 4) detect schedule queries like:
-  //    "Is John Al Saud on any project on 19th May?"
-  //    "Is John from Forensic scheduled on 19 May 2025?"
-  //    "John Al Saud is not scheduled on 19 May"
-  const scheduleRegex = /(is\s+)?([a-zA-Z]+(?:\s+[a-zA-Z]+)*)(?:\s+from\s+([a-zA-Z]+(?:\s+[a-zA-Z]+)*))?\s+(?:is\s+)?(?:not\s+)?(?:scheduled|on).*on\s+(\d{1,2})(?:st|nd|rd|th)?\s+(january|february|march|april|may|june|july|august|september|october|november|december)(?:\s+(\d{4}))?/i;
-  const scheduleMatch = query.match(scheduleRegex);
-  if (scheduleMatch) {
-    const [, , rawName, deptWord, dayStr, monthStr, yearStr] = scheduleMatch;
-    const monthNames = {
-      january:0,february:1,march:2,april:3,may:4,june:5,july:6,august:7,september:8,october:9,november:10,december:11
-    };
-    const day = parseInt(dayStr, 10);
-    const monthIndex = monthNames[monthStr.toLowerCase()];
-    const year = yearStr ? parseInt(yearStr, 10) : new Date().getFullYear();
-    // Create a UTC date to avoid timezone shifting
-    const targetDateUTC = new Date(Date.UTC(year, monthIndex, day));
-    // Create date range (UTC) for querying
-    const startOfDay = targetDateUTC;
-    const endOfDay = new Date(Date.UTC(year, monthIndex, day, 23, 59, 59, 999));
-    const dateISO = `${year}-${String(monthIndex + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-
-    // try to find staff by name (case-insensitive)
-    const staffList = await prisma.staff.findMany();
-
-    // Normalize helper to strip spaces, hyphens, punctuation and lowercase
-    const norm = (str) => str.toLowerCase().replace(/[^a-z0-9]/g, '');
-    const targetNorm = norm(rawName);
-
-    // Normalize department filter and comparison to ignore spaces, punctuation and case
-    const normalize = (str) => str.toLowerCase().replace(/[^a-z0-9]/g, '');
-    const deptFilterNorm = deptWord ? normalize(deptWord) : null;
-
-    let matching = staffList.filter(s => {
-      if (deptFilterNorm) {
-        const staffDeptNorm = normalize(s.department || '');
-        if (!staffDeptNorm.includes(deptFilterNorm)) {
-          return false;
-        }
-      }
-      const nameNorm = norm(s.name);
-      return nameNorm === targetNorm || nameNorm.includes(targetNorm) || targetNorm.includes(nameNorm);
-    });
-
-    // If nothing matched but we applied a department filter, retry ignoring department (user may have specified team or role instead)
-    if (matching.length === 0 && deptFilterNorm) {
-      matching = staffList.filter(s => {
-        const nameNorm = norm(s.name);
-        return nameNorm === targetNorm || nameNorm.includes(targetNorm) || targetNorm.includes(nameNorm);
-      });
-    }
-
-    // Final fallback: try matching on FIRST token of the name (e.g., "John") if still nothing
-    if (matching.length === 0) {
-      const firstToken = targetNorm.split(/\s+/)[0];
-      if (firstToken.length >= 2) {
-        matching = staffList.filter(s => norm(s.name).includes(firstToken));
-      }
-    }
-
-    if (matching.length === 0) {
-      return res.json({ content: `I couldn't find anyone named ${rawName} in the staff database.`, type: 'text' });
-    }
-
-    if (matching.length > 1) {
-      const names = matching.map(s => s.name).join(', ');
-      return res.json({ content: `I found multiple staff members that match: ${names}. Please specify which one you mean along with the date again (e.g., \"John Al-Saud on 21st May 2025\").`, type: 'text' });
-    }
-
-    const staffObj = matching[0];
-
-    // check assignments
+app.get('/api/analytics/range', async (req,res)=>{
+  const { from, to } = req.query;
+  try{
+    const start = new Date(from), end = new Date(to);
+    if (isNaN(start)||isNaN(end)) return res.status(400).json({error:'invalid_range'});
     const assignments = await prisma.assignment.findMany({
-      where: {
-        staffId: staffObj.id,
-        date: {
-          gte: startOfDay,
-          lte: endOfDay
-        }
-      }
+      where:{date:{gte:start,lte:end}}, include:{project:true,staff:true}
     });
-    if (assignments.length === 0) {
-      return res.json({ content: `${staffObj.name} is not scheduled for any project on ${dateISO}.`, type: 'text' });
-    } else {
-      const projIds = assignments.map(a => a.projectId);
-      const projects = await prisma.project.findMany({ where: { id: { in: projIds } } });
-      // Group hours by project
-      const hoursByProject = {};
-      assignments.forEach(a => {
-        hoursByProject[a.projectId] = (hoursByProject[a.projectId] || 0) + a.hours;
-      });
+    const totalHours = assignments.reduce((s,a)=>s+a.hours,0);
+    const byProject={}, byStaff={};
+    assignments.forEach(a=>{
+      byProject[a.projectId] = byProject[a.projectId] || { projectId:a.projectId, projectName:a.project.name, hours:0, count:0 };
+      byProject[a.projectId].hours += a.hours; byProject[a.projectId].count++;
 
-      const projDetails = projects.map(p => `${p.name} (${hoursByProject[p.id] || 0}h)`).join(', ');
-      const totalHours = assignments.reduce((sum,a)=>sum+a.hours,0);
-      return res.json({ content: `${staffObj.name} is scheduled for ${totalHours} hour(s) on ${dateISO} (${projDetails}).`, type: 'text' });
+      byStaff[a.staffId] = byStaff[a.staffId] || { staffId:a.staffId, staffName:a.staff.name, hours:0 };
+      byStaff[a.staffId].hours += a.hours;
+    });
+    res.json({
+      from,to,totalHours, assignmentsCount:assignments.length,
+      assignmentsByProject:Object.values(byProject),
+      assignmentsByStaff:Object.values(byStaff)
+    });
+  }catch(e){
+    console.error('/analytics/range',e);
+    res.status(500).json({error:'analytics_failed',message:e.message});
+  }
+});
+
+/* ============================================================== */
+/*  ORCHESTRATE  – booking / bulk / removal / replacement          */
+/* ============================================================== */
+app.post('/api/orchestrate', async (req,res)=>{
+  const { query, date, mode } = req.body;
+  const lower = (query||'').toLowerCase().trim();
+
+  /* ----- replacement branch ----- */
+  const swap = parseReplacement(lower);
+  if (swap){
+    try{
+      const staff = await prisma.staff.findFirst({ where:{ name:{ contains: swap.staffName } } });
+      const fromP = await prisma.project.findFirst({ where:{ name:{ contains: swap.fromProj } } });
+      const toP   = await prisma.project.findFirst({ where:{ name:{ contains: swap.toProj   } } });
+      if(!staff||!fromP||!toP){
+        return res.json({success:false,error:'not_found',message:'Staff or project not found.'});
+      }
+      await prisma.$transaction(async tx=>{
+        await tx.assignment.deleteMany({
+          where:{staffId:staff.id,projectId:fromP.id,date:{gte:swap.date,lte:swap.date}}
+        });
+        await tx.assignment.create({
+          data:{staffId:staff.id,projectId:toP.id,date:swap.date,hours:swap.hours}
+        });
+      });
+      return res.json({success:true,
+        message:`Replaced ${swap.hours}h on ${fromP.name} with ${toP.name} for ${staff.name} on ${swap.date.toISOString().split('T')[0]}.`
+      });
+    }catch(e){
+      console.error('swap error',e);
+      return res.status(500).json({success:false,error:'swap_failed',message:e.message});
     }
   }
-  
-  try {
-    // Try to connect to the orchestrator service
-    const { data } = await axios.post('http://localhost:8000/orchestrate', { query }, {
-      timeout: 5000, // 5 second timeout  
-      headers: { 'Content-Type': 'application/json' }
+
+  /* ----- removal branch ----- */
+  const removalPattern = /\b(remove|delete|unassign|unschedule|cancel)\b/i;
+  if (removalPattern.test(lower)){
+    const projMatch  = lower.match(/project\s+([a-z0-9 ]+)/i);
+    const staffMatch = lower.match(/for\s+([a-z0-9 ]+?)\s+on\s+\d/i);
+    const projectName = projMatch ? projMatch[1].trim() : null;
+    const staffName   = staffMatch ? staffMatch[1].trim() : null;
+    const range       = parseDateRange(lower) || {};
+    const singleDate  = range.from || new Date(lower.match(/\d{1,2}/)[0]);
+
+    const staff = await prisma.staff.findFirst({ where:{ name:{ contains: staffName } } });
+    const proj  = await prisma.project.findFirst({ where:{ name:{ contains: projectName } } });
+    if(!staff||!proj) return res.json({success:false,error:'not_found',message:'Staff or project not found.'});
+
+    const result = await prisma.assignment.deleteMany({
+      where:{
+        staffId:staff.id, projectId:proj.id,
+        date:{gte:range.from||singleDate,lte:range.to||singleDate}
+      }
     });
-    // Normalize orchestrator response to the same shape used in the frontend
-    if (typeof data === 'string') {
-      return res.json({ content: data, type: 'text' });
-    }
-    if (data?.content && typeof data.content === 'string') {
-      return res.json({ content: data.content, type: data.type || 'text' });
-    }
-    if (data?.response?.content) {
-      return res.json({ content: data.response.content, type: data.response.type || 'text' });
-    }
-    // Fallback to JSON payload otherwise
-    return res.json({ content: JSON.stringify(data), type: 'json' });
-  } catch (error) {
-    console.error('Ask error:', error);
-    
-    // Check if it's a connection error or timeout
-    const isConnectionError = error.code === 'ECONNREFUSED' || error.code === 'ECONNRESET' || error.code === 'ECONNABORTED';
-    
-    if (isConnectionError) {
-      console.log('Orchestrator service not yet available. Falling back to direct OpenAI chat...');
-    }
-    
-    // If we can't connect to orchestrator, fallback to using the chat endpoint
-    try {
-      const messages = [{ role: 'user', content: query }];
-      const initialResponse = await openai.chat.completions.create({
-        model: 'gpt-3.5-turbo',
-        messages,
-        functions: functionDefinitions,
-        function_call: 'auto',
-        temperature: 0
-      });
-      
-      const message = initialResponse.choices[0].message;
-      let assistantMessage;
-      
-      // If the model wants to call a function, execute it and re-prompt
-      if (message.function_call) {
-        const { name, arguments: argsJson } = message.function_call;
-        const args = JSON.parse(argsJson);
-        // Dynamically invoke the corresponding function
-        let functionResult;
-        if (functionMapping[name]) {
-          functionResult = await functionMapping[name](args);
+    return res.json({success:true,message:`✅ Deleted ${result.count} assignment(s).`,count:result.count});
+  }
+
+  /* ----- booking parse ----- */
+  const cmd = parseBookingCommand(query||'');
+  if (cmd){
+
+    /* -- BULK branch (team / multi-staff / range) -- */
+    if (cmd.isBulk){
+      try{
+/* ---------- staff set ---------- */
+        let staffList = [];
+
+        /**
+         * 1.  Deduce a "team" token, e.g. "analytics" in
+         *     "book the analytics team ..." or fall back to an explicit
+         *     comma/and-separated staffName list.
+         */
+        let teamCandidate = cmd.teamName                                         // ← already parsed
+            || (query || '').match(/(?:members?\s+of|members?\s+from|the)?\s*([a-z0-9 ]+?)\s+team\b/i)?.[1]  // ← Regex capture
+            || null;
+
+        if (teamCandidate) {
+          /* normalise & drop filler words so "book the analytics" → "analytics" */
+          const stop = new Set(['book','all','the','entire','team','members','member',
+                                'please','kindly','can','you']);
+          const tokens = teamCandidate
+                          .toLowerCase()
+                          .split(/\s+/)
+                          .filter(t => t && !stop.has(t));
+
+          const allStaff = await prisma.staff.findMany();
+          staffList      = allStaff.filter(s => {
+            const dept = (s.department || '').toLowerCase();
+            return tokens.some(tok => dept.includes(tok));
+          });
+
+          if (!staffList.length) {
+            return res.json({
+              success : false,
+              error   : 'no_staff',
+              message : `No staff found in the ${tokens.join(' ')} team.`
+            });
+          }
+
+        } else if (cmd.staffName) {
+          /* explicit list: "Aisha and Fatima ..." */
+          const names = cmd.staffName
+                          .split(/\s*(?:and|,|&)\s*/i)
+                          .map(n => n.trim())
+                          .filter(Boolean);
+
+          for (const n of names) {
+            const s = await prisma.staff.findFirst({
+              where: { name: { contains: n, mode: 'insensitive' } }
+            });
+            if (!s) {
+              return res.json({
+                success : false,
+                error   : 'staff_not_found',
+                message : `Staff '${n}' not found`
+              });
+            }
+            staffList.push(s);
+          }
+
+        } else {
+          return res.json({
+            success : false,
+            error   : 'bulk_parse_error',
+            message : 'Could not determine target staff or team.'
+          });
         }
-        // Send the function result back to the model
-        const followUp = await openai.chat.completions.create({
-          model: 'gpt-3.5-turbo',
-          messages: [
+
+
+        /* projects */
+        const projObjs=[];
+        for(const pb of cmd.projectBookings){
+          const p = await prisma.project.findFirst({ where:{ name:{ contains: pb.projectName } } });
+          if(!p) return res.json({success:false,error:'project_not_found',message:`Project '${pb.projectName}' not found`});
+          projObjs.push({...p,hours:pb.hours});
+        }
+
+        /* build rows */
+        const assignments=[];
+        const pushRows = d=>{
+          staffList.forEach(s=>projObjs.forEach(p=>{
+            assignments.push({ staffId:s.id, projectId:p.id, date:d.toISOString().split('T')[0], hours:p.hours });
+          }));
+        };
+        if (cmd.dateRange){
+          for(let d=new Date(cmd.dateRange.from); d<=cmd.dateRange.to; d.setUTCDate(d.getUTCDate()+1)){
+            pushRows(new Date(d));
+          }
+        }else pushRows(new Date(cmd.date));
+
+        const result = await createAssignmentsFromSchedule({assignments});
+        return res.json({success:true,message:result.message, rows:result.assignments});
+      }catch(e){
+        console.error('bulk booking',e);
+        return res.status(500).json({success:false,error:'bulk_booking_failed',message:e.message});
+      }
+    }
+
+    /* -- FAST single / same-day booking -- */
+    try{
+      const r = await directBooking({staffName:cmd.staffName,projectBookings:cmd.projectBookings,date:cmd.date});
+      return r.success
+        ? res.json({success:true,message:r.message, rows:r.assignments})
+        : res.json({success:false,error:r.error,message:r.message});
+    }catch(e){
+      console.error('direct booking',e);
+      return res.status(500).json({success:false,error:'booking_error',message:e.message});
+    }
+  }
+
+  /* ----- fallback to Python orchestrator or GPT ----- */
+  try{
+    const { data } = await axios.post('http://localhost:8000/orchestrate',{ query,date,mode },{ timeout:5000 });
+    return res.json(data);
+  }catch(err){
+    console.error('orchestrator fallback',err.code);
+    return res.status(503).json({error:'orchestrator_unavailable',message:err.message});
+  }
+});
+
+/* ============================================================== */
+/*  ASK endpoint – smart Q&A + deterministic shortcuts            */
+/* ============================================================== */
+app.post('/api/ask', async (req,res)=>{
+  const { query } = req.body;
+  const lower = (query||'').toLowerCase().trim();
+
+  /* deterministic shortcuts */
+  if (/(how\s+many|number\s+of)\s+staff/.test(lower)){
+    const count = await prisma.staff.count();
+    return res.json({content:`There are ${count} staff members.`,type:'text'});
+  }
+  if (/(how\s+many|number\s+of)\s+projects/.test(lower)){
+    const count = await prisma.project.count();
+    return res.json({content:`There are ${count} projects.`,type:'text'});
+  }
+
+  /* fast booking via parseBookingCommand */
+  const cmd = parseBookingCommand(query);
+  if (cmd && !cmd.isBulk){
+    const t0=Date.now();
+    const r = await directBooking({staffName:cmd.staffName,projectBookings:cmd.projectBookings,date:cmd.date});
+    const ms = Date.now()-t0;
+    return res.json(r.success
+      ? { content:r.message, type:'text', booking:r.assignments, processingTime:`${ms}ms`, isMultiProject:r.isMultiProject }
+      : { content:r.message, type:'text', error:r.error, processingTime:`${ms}ms` });
+  }
+
+  /* fallback to orchestrator or direct GPT with function-calling */
+  try{
+    const { data } = await axios.post('http://localhost:8000/orchestrate',{ query },{ timeout:5000 });
+    if (typeof data === 'string') return res.json({content:data,type:'text'});
+    if (data?.content) return res.json({content:data.content,type:data.type||'text'});
+    if (data?.response?.content) return res.json({content:data.response.content,type:data.response.type||'text'});
+    return res.json({content:JSON.stringify(data),type:'json'});
+  }catch(err){
+    console.warn('orchestrator not available → direct GPT fallback');
+    try{
+      const messages=[{role:'user',content:query}];
+      const initial = await openai.chat.completions.create({
+        model:chatModel, messages, functions:functionDefinitions, function_call:'auto', temperature:0
+      });
+      let reply = initial.choices[0].message;
+      if (reply.function_call){
+        const fnName = reply.function_call.name;
+        const args   = JSON.parse(reply.function_call.arguments || '{}');
+        const fnRes  = functionMapping[fnName] ? await functionMapping[fnName](args) : {};
+        const follow = await openai.chat.completions.create({
+          model:chatModel,
+          messages:[
             ...messages,
-            message,
-            { role: 'function', name: name, content: JSON.stringify(functionResult) }
+            reply,
+            { role:'function', name:fnName, content:JSON.stringify(fnRes) }
           ],
-          temperature: 0
+          temperature:0
         });
-        assistantMessage = followUp.choices[0].message.content;
-      } else {
-        assistantMessage = message.content;
+        reply = follow.choices[0].message;
       }
-      
-      // Add a note if we're using the fallback due to orchestrator not being ready
-      let responseContent = assistantMessage;
-      if (isConnectionError) {
-        responseContent = `${assistantMessage}\n\n[Note: Using direct chat mode while orchestrator service is starting up. Some advanced features may be limited.]`;
-      }
-      
-      res.json({ content: responseContent, type: 'text' });
-    } catch (fallbackError) {
-      console.error('Fallback error:', fallbackError);
-      
-      if (isConnectionError) {
-        res.status(503).json({ 
-          error: "Orchestrator service starting", 
-          details: "The orchestrator service is starting up. Please try again in a few moments.",
-          retryable: true,
-          message: error.message 
-        });
-      } else {
-        res.status(500).json({ 
-          error: "Could not connect to orchestrator service and fallback also failed", 
-          details: error.message 
-        });
-      }
+      return res.json({content:reply.content,type:'text'});
+    }catch(e){
+      console.error('GPT fallback failed',e);
+      return res.status(500).json({error:'ask_failed',message:e.message});
     }
   }
 });
 
-// Basic chat endpoint - legacy support
-app.post('/api/chat', async (req, res) => {
-  const { messages } = req.body;
-  try {
-    // Prepare messages for OpenAI
-    const formattedMessages = messages.map((msg) => ({
-      role: msg.sender === 'user' ? 'user' : 'assistant',
-      content: msg.text,
-    }));
-
-    // Call the model with function definitions to enable data retrieval
-    const initialResponse = await openai.chat.completions.create({
-      model: 'gpt-3.5-turbo',
-      messages: formattedMessages,
-      functions: functionDefinitions,
-      function_call: 'auto',
-      temperature: 0
+/* ============================================================== */
+/*  PDF report proxy                                               */
+/* ============================================================== */
+app.post('/api/report', async (req,res)=>{
+  const { from, to } = req.body;
+  try{
+    const { data } = await axios.post('http://localhost:8000/generate_report',
+      { start:from, end:to, fmt:'pdf' }, { timeout:15000 });
+    const fileUrl = `http://localhost:8000${data.url}`;
+    const pdf = await axios.get(fileUrl,{ responseType:'arraybuffer' });
+    const filename = path.basename(data.url);
+    res.set({
+      'Content-Type':'application/pdf',
+      'Content-Disposition':`attachment; filename=${filename}`
     });
-    const message = initialResponse.choices[0].message;
-    let assistantMessage;
-    // If the model wants to call a function, execute it and re-prompt
-    if (message.function_call) {
-      const { name, arguments: argsJson } = message.function_call;
-      const args = JSON.parse(argsJson);
-      // Dynamically invoke the corresponding function
-      let functionResult;
-      if (functionMapping[name]) {
-        functionResult = await functionMapping[name](args);
-      }
-      // Send the function result back to the model
-      const followUp = await openai.chat.completions.create({
-        model: 'gpt-3.5-turbo',
-        messages: [
-          ...formattedMessages,
-          message,
-          { role: 'function', name: name, content: JSON.stringify(functionResult) }
-        ],
-        temperature: 0
-      });
-      assistantMessage = followUp.choices[0].message.content;
-    } else {
-      assistantMessage = message.content;
-    }
-    res.json({ response: { content: assistantMessage } });
-  } catch (error) {
-    console.error('Chat error:', error);
-    if (error.response) {
-      console.error(`OpenAI response error ${error.response.status}:`, error.response.data);
-    }
-    // Return actual error message for debugging
-    res.status(500).json({ error: error.message || 'Chat service error' });
+    res.send(pdf.data);
+  }catch(e){
+    console.error('/api/report',e);
+    res.status(500).json({error:'report_failed',message:e.message});
   }
 });
 
-// Legacy chat routes removed
+/* ============================================================== */
+/*  legacy /api/chat (kept for old frontend versions)              */
+/* ============================================================== */
+app.post('/api/chat', async (req,res)=>{
+  const { messages } = req.body;
+  try{
+    const formatted = messages.map(m=>({ role:m.sender==='user'?'user':'assistant', content:m.text }));
+    const initial   = await openai.chat.completions.create({
+      model:chatModel, messages:formatted, functions:functionDefinitions, function_call:'auto', temperature:0
+    });
+    let reply = initial.choices[0].message;
+    if (reply.function_call){
+      const fnName = reply.function_call.name;
+      const args   = JSON.parse(reply.function_call.arguments || '{}');
+      const fnRes  = functionMapping[fnName] ? await functionMapping[fnName](args) : {};
+      const follow = await openai.chat.completions.create({
+        model:chatModel,
+        messages:[ ...formatted, reply, { role:'function', name:fnName, content:JSON.stringify(fnRes) } ],
+        temperature:0
+      });
+      reply = follow.choices[0].message;
+    }
+    res.json({ response:{ content:reply.content } });
+  }catch(e){
+    console.error('/api/chat',e.response?.data||e.message);
+    res.status(500).json({error:e.message||'chat_failed'});
+  }
+});
 
-const port = process.env.PORT || 5000;
-app.listen(port, () => console.log(`Chat server listening on port ${port}`)); 
+/* ============================================================== */
+/*  start server                                                   */
+/* ============================================================== */
+const port = process.env.PORT || 5001;   // keep 5001 to match npm script
+app.listen(port, ()=>console.log(`Chat server listening on ${port}`));
