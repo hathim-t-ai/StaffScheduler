@@ -35,7 +35,7 @@ import axios from 'axios';
 interface Message {
   sender: 'user' | 'bot';
   text: string;
-  type?: 'text' | 'json' | 'schedule_result';
+  type?: 'text' | 'json' | 'schedule_result' | 'thinking';
   timestamp: Date;
 }
 
@@ -69,8 +69,12 @@ const ChatWidget: React.FC = () => {
       const stored = localStorage.getItem('chatMessages');
       if (stored) {
         const parsedMessages = JSON.parse(stored);
+        // Filter out any stale mode-change greetings
+        const filteredMessages = parsedMessages.filter((msg: any) =>
+          !msg.text.startsWith("I'm now in Agent mode") && !msg.text.startsWith("I'm now in Ask mode")
+        );
         // Convert timestamp strings back to Date objects
-        return parsedMessages.map((msg: any) => ({
+        return filteredMessages.map((msg: any) => ({
           ...msg,
           timestamp: new Date(msg.timestamp)
         }));
@@ -109,7 +113,11 @@ const ChatWidget: React.FC = () => {
   // Save messages to localStorage whenever messages change
   useEffect(() => {
     try {
-      localStorage.setItem('chatMessages', JSON.stringify(messages));
+      // Persist messages but omit mode-change greetings
+      const messagesToStore = messages.filter(msg =>
+        !msg.text.startsWith("I'm now in Agent mode") && !msg.text.startsWith("I'm now in Ask mode")
+      );
+      localStorage.setItem('chatMessages', JSON.stringify(messagesToStore));
     } catch (error) {
       console.error('Failed to save chat messages to localStorage:', error);
     }
@@ -178,20 +186,18 @@ const ChatWidget: React.FC = () => {
   const handleModeChange = (_event: React.MouseEvent<HTMLElement>, newMode: 'ask' | 'agent' | null) => {
     if (newMode !== null) {
       setMode(newMode);
-      // Add a system message when mode changes
-      const modeChangeMessage = newMode === 'ask' 
-        ? "I'm now in Ask mode. You can ask me questions about staff, projects, and schedules."
-        : "I'm now in Agent mode. You can instruct me to book staff onto projects using natural language commands.";
-      
-      setMessages(prev => [
-        ...prev, 
-        { 
-          sender: 'bot', 
-          text: modeChangeMessage, 
-          timestamp: new Date(),
-          type: 'text'
-        }
-      ]);
+      // Only add a greeting when switching to Agent mode
+      if (newMode === 'agent') {
+        setMessages(prev => [
+          ...prev,
+          {
+            sender: 'bot',
+            text: "I'm now in Agent mode. You can instruct me to book staff onto projects using natural language commands.",
+            timestamp: new Date(),
+            type: 'text'
+          }
+        ]);
+      }
     }
   };
 
@@ -289,6 +295,10 @@ const ChatWidget: React.FC = () => {
     setMessages(prev => [...prev, { sender: 'user', text: userText, timestamp: new Date() }]);
     setInput('');
 
+    // Show thinking message bubble to indicate processing
+    const thinkingMsg: Message = { sender: 'bot', text: 'Thinking...', timestamp: new Date(), type: 'thinking' };
+    setMessages(prev => [...prev, thinkingMsg]);
+
     try {
       const endpoint = mode === 'ask'
         ? '/api/ask'
@@ -302,7 +312,12 @@ const ChatWidget: React.FC = () => {
         // Reuse previous agent payload on confirmation
         payload = lastAgentPayload;
       } else if (mode === 'ask') {
-        payload = { query: input, mode: 'ask' };
+        // For Ask mode, send full conversation context with a system prompt
+        const formattedMessages = [
+          { role: 'system', content: 'You are a factual assistant with access to database query functions; use them to provide accurate information.' },
+          ...messages.map(m => ({ role: m.sender === 'user' ? 'user' : 'assistant', content: m.text }))
+        ];
+        payload = { messages: formattedMessages, mode: 'ask' };
       } else {
         // Build a typed agent payload
         const agentPayload = { query: input, mode: 'agent' } as const;
@@ -349,7 +364,10 @@ const ChatWidget: React.FC = () => {
         type: messageType
       };
       
-      setMessages(prev => [...prev, botMsg]);
+      setMessages(prev => {
+        const withoutThinking = prev.filter(m => m.type !== 'thinking');
+        return [...withoutThinking, botMsg];
+      });
       
       // 🚀 AUTO-REFRESH SCHEDULE: Trigger calendar refresh if booking was successful
       if (
@@ -395,7 +413,10 @@ const ChatWidget: React.FC = () => {
         type: 'text'
       };
       
-      setMessages(prev => [...prev, errorMsg]);
+      setMessages(prev => {
+        const withoutThinking = prev.filter(m => m.type !== 'thinking');
+        return [...withoutThinking, errorMsg];
+      });
       
       // If the service is starting up, retry after a delay
       if (isServiceStarting) {
@@ -459,7 +480,10 @@ const ChatWidget: React.FC = () => {
                 type: messageType
               };
               
-              setMessages(prev => [...prev, botMsg]);
+              setMessages(prev => {
+                const withoutThinking = prev.filter(m => m.type !== 'thinking');
+                return [...withoutThinking, botMsg];
+              });
               
               // 🚀 AUTO-REFRESH SCHEDULE: Trigger calendar refresh if booking was successful (retry path)
               if (
@@ -541,7 +565,9 @@ const ChatWidget: React.FC = () => {
               color: isUser ? 'white' : 'text.primary',
             }}
           >
-            {message.type === 'json' ? (
+            {message.type === 'thinking' ? (
+              <Typography variant="body2" sx={{ fontStyle: 'italic', color: 'text.secondary' }}>{message.text}</Typography>
+            ) : message.type === 'json' ? (
               formatJsonOutput(message.text)
             ) : message.type === 'schedule_result' ? (
               <Typography 
@@ -791,7 +817,8 @@ const ChatWidget: React.FC = () => {
                       disabled={loading || !input.trim()}
                       sx={{ ml: 1 }}
                     >
-                      {loading ? <CircularProgress size={24} /> : <SendIcon />}
+                      {/* Always show send icon; thinking bubble indicates loading */}
+                      <SendIcon />
                     </IconButton>
                   )}
                 </Box>

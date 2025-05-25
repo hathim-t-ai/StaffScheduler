@@ -23,6 +23,8 @@ const {
   getStaffAssignments,
   getAllStaff,
   getProjectDetails,
+  getAllProjects,
+  getTotalBudget,
   getTeamAvailability,
   getProductiveHours,
   getStaffProductiveHours,
@@ -30,7 +32,9 @@ const {
   parseBookingCommand,
   parseDateRange,
   parseReplacement,
-  directBooking
+  directBooking,
+  findProjects,
+  aggregateProjects
 } = require('./chatFunctions');
 
 /* ---------- basic app ---------- */
@@ -45,6 +49,10 @@ const chatModel = process.env.OPENAI_CHAT_MODEL || 'gpt-4o';
 const functionMapping = {
   getStaffAssignments,
   getAllStaff,
+  getAllProjects,
+  getTotalBudget,
+  findProjects,
+  aggregateProjects,
   getProjectDetails,
   getTeamAvailability,
   getProductiveHours,
@@ -66,6 +74,36 @@ const functionDefinitions = [
     }
   },
   { name:'getAllStaff', description:'Get list of all staff', parameters:{ type:'object', properties:{}, required:[] } },
+  { name:'getAllProjects', description:'Get list of all projects with details including budget', parameters:{ type:'object', properties:{}, required:[] } },
+  { name:'getTotalBudget', description:'Get total combined budget of all projects', parameters:{ type:'object', properties:{}, required:[] } },
+  {
+    name: 'findProjects',
+    description: 'Find projects matching filters, sorted, and limited',
+    parameters: {
+      type: 'object',
+      properties: {
+        filter: { type: 'object', description: 'Prisma-style where filter' },
+        sort: { type: 'object', description: 'Prisma-style orderBy object' },
+        limit: { type: 'integer', description: 'Max number of projects to return' }
+      },
+      required: []
+    }
+  },
+  {
+    name: 'aggregateProjects',
+    description: 'Aggregate projects by a field with metrics and optional limits',
+    parameters: {
+      type: 'object',
+      properties: {
+        groupBy: { type: 'string', description: 'Field to group by, e.g., partnerName' },
+        metrics: { type: 'array', items: { type: 'string' }, description: 'Metrics: count, avgBudget' },
+        filter: { type: 'object', description: 'Optional where filter' },
+        sort: { type: 'object', description: 'Optional sort on aggregated metrics' },
+        limit: { type: 'integer', description: 'Limit number of groups' }
+      },
+      required: ['groupBy']
+    }
+  },
   {
     name: 'getProjectDetails',
     description: 'Get project details incl. remaining budget',
@@ -379,21 +417,58 @@ app.post('/api/orchestrate', async (req,res)=>{
           projObjs.push({...p,hours:pb.hours});
         }
 
-        /* build rows */
-        const assignments=[];
-        const pushRows = d=>{
-          staffList.forEach(s=>projObjs.forEach(p=>{
-            assignments.push({ staffId:s.id, projectId:p.id, date:d.toISOString().split('T')[0], hours:p.hours });
-          }));
-        };
-        if (cmd.dateRange){
-          for(let d=new Date(cmd.dateRange.from); d<=cmd.dateRange.to; d.setUTCDate(d.getUTCDate()+1)){
-            pushRows(new Date(d));
+        /* build rows with capacity check */
+        // Determine dates to book
+        const datesToBook = [];
+        if (cmd.dateRange) {
+          for (let d = new Date(cmd.dateRange.from); d <= cmd.dateRange.to; d.setUTCDate(d.getUTCDate() + 1)) {
+            datesToBook.push(new Date(d));
           }
-        }else pushRows(new Date(cmd.date));
-
-        const result = await createAssignmentsFromSchedule({assignments});
-        return res.json({ success:true, message:result.message, assignments:result.assignments});
+        } else {
+          datesToBook.push(new Date(cmd.date));
+        }
+        // Fetch existing assignments for these staff and dates
+        const staffIds = staffList.map(s => s.id);
+        const startBook = new Date(Date.UTC(
+          datesToBook[0].getUTCFullYear(), datesToBook[0].getUTCMonth(), datesToBook[0].getUTCDate()
+        ));
+        const endDate = datesToBook[datesToBook.length - 1];
+        const endBook = new Date(Date.UTC(
+          endDate.getUTCFullYear(), endDate.getUTCMonth(), endDate.getUTCDate(), 23, 59, 59, 999
+        ));
+        const existing = await prisma.assignment.findMany({
+          where: { staffId: { in: staffIds }, date: { gte: startBook, lte: endBook } }
+        });
+        const totalIncoming = projObjs.reduce((sum, p) => sum + p.hours, 0);
+        const assignments = [];
+        const skipped = new Set();
+        for (const d of datesToBook) {
+          const dateStr = d.toISOString().split('T')[0];
+          for (const s of staffList) {
+            // Sum current hours for this staff on this date
+            const current = existing
+              .filter(a => a.staffId === s.id && a.date.toISOString().split('T')[0] === dateStr)
+              .reduce((sum, a) => sum + a.hours, 0);
+            if (current + totalIncoming <= 8) {
+              for (const p of projObjs) {
+                assignments.push({
+                  staffId: s.id,
+                  projectId: p.id,
+                  date: dateStr,
+                  hours: p.hours
+                });
+              }
+            } else {
+              skipped.add(s.name);
+            }
+          }
+        }
+        const result = await createAssignmentsFromSchedule({ assignments });
+        let message = result.message;
+        if (skipped.size) {
+          message += `\n\n⚠️ Could not book for ${Array.from(skipped).join(', ')} since the project hours would exceed the 8-hour limit.`;
+        }
+        return res.json({ success: true, message, assignments: result.assignments });
       }catch(e){
         console.error('bulk booking',e);
         return res.status(500).json({success:false,error:'bulk_booking_failed',message:e.message});
@@ -412,79 +487,190 @@ app.post('/api/orchestrate', async (req,res)=>{
     }
   }
 
-  /* ----- fallback to Python orchestrator or GPT ----- */
-  try{
-    const { data } = await axios.post('http://localhost:8000/orchestrate',{ query,date,mode },{ timeout:5000 });
-    return res.json(data);
-  }catch(err){
-    console.error('orchestrator fallback',err.code);
-    return res.status(503).json({error:'orchestrator_unavailable',message:err.message});
+  /* ----- fallback to GPT conversational assistant ----- */
+  try {
+    // Use OpenAI to handle general conversational queries with function-calling
+    const commonSystem = `You are a world-class data assistant with direct access to these data functions: getAllStaff, getAllProjects, findProjects, aggregateProjects, getTotalBudget, getProjectDetails, getTeamAvailability, getProductiveHours, getStaffProductiveHours. ALWAYS call the appropriate function to retrieve reliable, up-to-date data in JSON. For queries asking for partners with the most or least number of projects, use the aggregateProjects function with groupBy: 'partnerName', metrics: ['count'], sort by count descending (for most) or ascending (for least), and set limits appropriately. NEVER hallucinate or fabricate information. After calling the function(s), process the returned data and provide a concise, factual response. Prefix your reasoning steps with "Thinking:".`;
+    const chat = [
+      { role: 'system', content: commonSystem },
+      { role: 'user', content: query }
+    ];
+    // First GPT call
+    const initial = await openai.chat.completions.create({
+      model: chatModel,
+      messages: chat,
+      functions: functionDefinitions,
+      function_call: 'auto',
+      temperature: 0
+    });
+    let reply = initial.choices[0].message;
+    // If a function call was suggested, execute it and call GPT again
+    if (reply.function_call) {
+      const fnName = reply.function_call.name;
+      const args = JSON.parse(reply.function_call.arguments || '{}');
+      const fnRes = functionMapping[fnName] ? await functionMapping[fnName](args) : {};
+      const follow = await openai.chat.completions.create({
+        model: chatModel,
+        messages: [
+          ...chat,
+          reply,
+          { role: 'function', name: fnName, content: JSON.stringify(fnRes) }
+        ],
+        temperature: 0
+      });
+      reply = follow.choices[0].message;
+    }
+    return res.json({ content: reply.content, type: 'text' });
+  } catch (err) {
+    console.error('Orchestrator GPT fallback failed', err);
+    return res.status(500).json({ error: 'orchestrator_gpt_failed', message: err.message });
   }
 });
 
 /* ============================================================== */
 /*  ASK endpoint – smart Q&A + deterministic shortcuts            */
 /* ============================================================== */
-app.post('/api/ask', async (req,res)=>{
-  const { query } = req.body;
-  const lower = (query||'').toLowerCase().trim();
+app.post('/api/ask', async (req, res) => {
+  const { messages } = req.body;
+  // Extract last user message for shortcuts
+  const lastUser = [...messages].reverse().find(m => m.role === 'user')?.content || '';
+  const lower = lastUser.toLowerCase().trim();
 
-  /* deterministic shortcuts */
-  if (/(how\s+many|number\s+of)\s+staff/.test(lower)){
+  // Deterministic shortcuts on lastUser
+  if (/(how\s+many|number\s+of)\s+staff/.test(lower)) {
     const count = await prisma.staff.count();
-    return res.json({content:`There are ${count} staff members.`,type:'text'});
+    return res.json({ content: `There are ${count} staff members.`, type: 'text' });
   }
-  if (/(how\s+many|number\s+of)\s+projects/.test(lower)){
+  if (/(how\s+many|number\s+of)\s+projects/.test(lower) && !/partner/.test(lower)) {
     const count = await prisma.project.count();
-    return res.json({content:`There are ${count} projects.`,type:'text'});
+    return res.json({ content: `There are ${count} projects.`, type: 'text' });
   }
 
-  /* fast booking via parseBookingCommand */
-  const cmd = parseBookingCommand(query);
-  if (cmd && !cmd.isBulk){
-    const t0=Date.now();
-    const r = await directBooking({staffName:cmd.staffName,projectBookings:cmd.projectBookings,date:cmd.date});
-    const ms = Date.now()-t0;
-    return res.json(r.success
-      ? { content:r.message, type:'text', booking:r.assignments, processingTime:`${ms}ms`, isMultiProject:r.isMultiProject }
-      : { content:r.message, type:'text', error:r.error, processingTime:`${ms}ms` });
+  // Quick budget queries: top N highest or lowest budgets
+  const budgetRegex = /\btop\s+(\d+)\s+projects?\s+(?:with\s+the\s+)?(highest|lowest)\s+budgets?\b/;
+  const budgetMatch = lower.match(budgetRegex);
+  if (budgetMatch) {
+    const n = parseInt(budgetMatch[1], 10);
+    const order = budgetMatch[2]; // 'highest' or 'lowest'
+    const projects = await prisma.project.findMany();
+    const filtered = projects.filter(p => typeof p.budget === 'number');
+    filtered.sort((a, b) => order === 'highest' ? b.budget - a.budget : a.budget - b.budget);
+    const topN = filtered.slice(0, n);
+    let content = `The top ${n} projects ${order === 'highest' ? 'with the highest budgets' : 'with the lowest budgets'}, ranked ${order === 'highest' ? 'from highest' : 'from lowest'}, are:`;
+    topN.forEach((p, i) => {
+      const amount = p.budget.toLocaleString();
+      content += `\n${i+1}. **${p.name}** - Budget: AED ${amount}`;
+    });
+    return res.json({ content, type: 'text' });
   }
 
-  /* fallback to orchestrator or direct GPT with function-calling */
-  try{
-    const { data } = await axios.post('http://localhost:8000/orchestrate',{ query },{ timeout:5000 });
-    if (typeof data === 'string') return res.json({content:data,type:'text'});
-    if (data?.content) return res.json({content:data.content,type:data.type||'text'});
-    if (data?.response?.content) return res.json({content:data.response.content,type:data.response.type||'text'});
-    return res.json({content:JSON.stringify(data),type:'json'});
-  }catch(err){
-    console.warn('orchestrator not available → direct GPT fallback');
-    try{
-      const messages=[{role:'user',content:query}];
-      const initial = await openai.chat.completions.create({
-        model:chatModel, messages, functions:functionDefinitions, function_call:'auto', temperature:0
+  // Specific partner project count inquiry (e.g., "What about Sarah Al-Bader? ...")
+  const aboutMatch = lower.match(/what about\s+(.+?)\s*\?/i);
+  if (aboutMatch) {
+    const candidate = aboutMatch[1].trim();
+    const projects = await prisma.project.findMany();
+    const byPartner = {};
+    projects.forEach(p => {
+      const partner = p.partnerName || 'Unknown';
+      if (!byPartner[partner]) byPartner[partner] = [];
+      byPartner[partner].push(p);
+    });
+    const matchingPartner = Object.keys(byPartner).find(
+      key => key.toLowerCase().includes(candidate.toLowerCase())
+    );
+    if (matchingPartner) {
+      const partnerProjects = byPartner[matchingPartner];
+      let content = `**${matchingPartner}** has ${partnerProjects.length} project${partnerProjects.length > 1 ? 's' : ''}:`;
+      partnerProjects.forEach(p => {
+        const amount = (typeof p.budget === 'number' ? p.budget : 0).toLocaleString();
+        content += `\n• ${p.name} — Budget: AED ${amount}`;
       });
-      let reply = initial.choices[0].message;
-      if (reply.function_call){
-        const fnName = reply.function_call.name;
-        const args   = JSON.parse(reply.function_call.arguments || '{}');
-        const fnRes  = functionMapping[fnName] ? await functionMapping[fnName](args) : {};
-        const follow = await openai.chat.completions.create({
-          model:chatModel,
-          messages:[
-            ...messages,
-            reply,
-            { role:'function', name:fnName, content:JSON.stringify(fnRes) }
-          ],
-          temperature:0
-        });
-        reply = follow.choices[0].message;
-      }
-      return res.json({content:reply.content,type:'text'});
-    }catch(e){
-      console.error('GPT fallback failed',e);
-      return res.status(500).json({error:'ask_failed',message:e.message});
+      return res.json({ content, type: 'text' });
     }
+  }
+
+  // Partner(s) with the most projects: handle ties
+  if (/partner.*most.*project/.test(lower)) {
+    const projects = await prisma.project.findMany();
+    const byPartner = {};
+    projects.forEach(p => {
+      const partner = p.partnerName || 'Unknown';
+      if (!byPartner[partner]) byPartner[partner] = [];
+      byPartner[partner].push(p);
+    });
+    const counts = Object.values(byPartner).map(arr => arr.length);
+    const maxCount = Math.max(...counts);
+    const topPartners = Object.entries(byPartner).filter(([, arr]) => arr.length === maxCount);
+    let content;
+    if (topPartners.length === 1) {
+      const [partner, partnerProjects] = topPartners[0];
+      content = `The partner with the most projects is **${partner}** with ${partnerProjects.length} project${partnerProjects.length > 1 ? 's' : ''}:`;
+      partnerProjects.forEach(p => {
+        const amount = (typeof p.budget === 'number' ? p.budget : 0).toLocaleString();
+        content += `\n• ${p.name} — Budget: AED ${amount}`;
+      });
+    } else {
+      const partnerNames = topPartners.map(([partner]) => `**${partner}**`).join(', ');
+      content = `The partners with the most projects (${maxCount} each) are ${partnerNames}:`;
+      topPartners.forEach(([partner, partnerProjects]) => {
+        content += `\n\n**${partner}** has ${partnerProjects.length} projects:`;
+        partnerProjects.forEach(p => {
+          const amount = (typeof p.budget === 'number' ? p.budget : 0).toLocaleString();
+          content += `\n• ${p.name} — Budget: AED ${amount}`;
+        });
+      });
+    }
+    return res.json({ content, type: 'text' });
+  }
+
+  // Booking via parseBookingCommand on lastUser
+  const cmd = parseBookingCommand(lastUser);
+  if (cmd && !cmd.isBulk) {
+    const t0 = Date.now();
+    const r = await directBooking({ staffName: cmd.staffName, projectBookings: cmd.projectBookings, date: cmd.date });
+    const ms = Date.now() - t0;
+    return res.json(
+      r.success
+        ? { content: r.message, type: 'text', booking: r.assignments, processingTime: `${ms}ms`, isMultiProject: r.isMultiProject }
+        : { content: r.message, type: 'text', error: r.error, processingTime: `${ms}ms` }
+    );
+  }
+
+  // Default: use GPT function-calling with full context
+  try {
+    // Prepend a system message to guide function usage and handle follow-ups
+    const commonSystem = `You are a world-class data assistant with direct access to these data functions: getAllStaff, getAllProjects, findProjects, aggregateProjects, getTotalBudget, getProjectDetails, getTeamAvailability, getProductiveHours, getStaffProductiveHours. ALWAYS call the appropriate function to retrieve reliable, up-to-date data in JSON. For queries asking for partners with the most or least number of projects, use the aggregateProjects function with groupBy: 'partnerName', metrics: ['count'], sort by count descending (for most) or ascending (for least), and set limits appropriately. NEVER hallucinate or fabricate information. After calling the function(s), process the returned data and provide a concise, factual response. Prefix your reasoning steps with "Thinking:".`;
+    const chat = [
+      { role: 'system', content: commonSystem },
+      ...messages
+    ];
+    const initial = await openai.chat.completions.create({
+      model: chatModel,
+      messages: chat,
+      functions: functionDefinitions,
+      function_call: 'auto',
+      temperature: 0,
+    });
+    let reply = initial.choices[0].message;
+    if (reply.function_call) {
+      const fnName = reply.function_call.name;
+      const args = JSON.parse(reply.function_call.arguments || '{}');
+      const fnRes = functionMapping[fnName] ? await functionMapping[fnName](args) : {};
+      const follow = await openai.chat.completions.create({
+        model: chatModel,
+        messages: [
+          ...chat,
+          reply,
+          { role: 'function', name: fnName, content: JSON.stringify(fnRes) }
+        ],
+        temperature: 0,
+      });
+      reply = follow.choices[0].message;
+    }
+    return res.json({ content: reply.content, type: 'text' });
+  } catch (err) {
+    console.error('Ask GPT failed', err);
+    return res.status(500).json({ error: 'ask_failed', message: err.message });
   }
 });
 
@@ -496,6 +682,7 @@ app.post('/api/report', async (req,res)=>{
   try{
     const { data } = await axios.post('http://localhost:8000/generate_report',
       { start:from, end:to, fmt:'pdf' }, { timeout:15000 });
+    // PDF report proxy
     const fileUrl = `http://localhost:8000${data.url}`;
     const pdf = await axios.get(fileUrl,{ responseType:'arraybuffer' });
     const filename = path.basename(data.url);

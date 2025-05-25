@@ -144,6 +144,18 @@ async function getProjectDetails({ projectName }) {
   };
 }
 
+async function getAllProjects() {
+  const allProjects = await prisma.project.findMany();
+  return allProjects.map(p => ({
+    projectId: p.id,
+    projectName: p.name,
+    description: p.description,
+    partnerName: p.partnerName,
+    teamLead: p.teamLead,
+    budget: p.budget
+  }));
+}
+
 async function getTeamAvailability({ from, to }) {
   const start = new Date(from);
   const end   = new Date(to);
@@ -450,6 +462,43 @@ async function directBooking({ staffName, projectBookings, date }) {
   }
 }
 
+async function getTotalBudget() {
+  const projects = await prisma.project.findMany();
+  const totalBudget = projects.reduce((sum, p) => sum + (typeof p.budget === 'number' ? p.budget : 0), 0);
+  return { totalBudget };
+}
+
+// ------------------------------------------------------------------
+// 6. Generic project finder for arbitrary queries
+// ------------------------------------------------------------------
+async function findProjects({ filter = {}, sort = {}, limit = 10 }) {
+  // User-supplied filter and sort should correspond to Prisma where/orderBy
+  const projects = await prisma.project.findMany({
+    where: filter,
+    orderBy: sort,
+    take: limit
+  });
+  return { projects };
+}
+
+// ------------------------------------------------------------------
+// 7. Generic project aggregator for grouping/counting
+// ------------------------------------------------------------------
+async function aggregateProjects({ groupBy, metrics = ['count'], filter = {}, sort = {}, limit }) {
+  // Build groupBy arguments for Prisma
+  const groupArgs = { where: filter, by: [groupBy] };
+  if (metrics.includes('count')) groupArgs._count = { _all: true };
+  if (metrics.includes('avgBudget')) groupArgs._avg = { budget: true };
+  if (sort) {
+    // sort on aggregated fields
+    groupArgs.orderBy = {};
+    if (metrics.includes('count') && sort.count) groupArgs.orderBy._count = { _all: sort.count };
+    if (metrics.includes('avgBudget') && sort.avgBudget) groupArgs.orderBy._avg = { budget: sort.avgBudget };
+  }
+  if (limit) groupArgs.take = limit;
+  const result = await prisma.project.groupBy(groupArgs);
+  return { result };
+}
 
 /* ------------------------------------------------------------------ */
 /* 5. Exports                                                         */
@@ -460,6 +509,10 @@ module.exports = {
   getStaffAssignments,
   getAllStaff,
   getProjectDetails,
+  getAllProjects,
+  getTotalBudget,
+  findProjects,
+  aggregateProjects,
   getTeamAvailability,
   getProductiveHours,
   getStaffProductiveHours,
