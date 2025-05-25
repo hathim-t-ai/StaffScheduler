@@ -110,7 +110,7 @@ const AnalyticsPage: React.FC = () => {
     const controlsEl = document.getElementById('report-controls');
     if (controlsEl) controlsEl.style.display = 'none';
     if (!reportRef.current) return;
-    // Capture entire analytics section
+    // Capture entire analytics section at high resolution for crisp PDF
     const canvas = await html2canvas(reportRef.current, { backgroundColor: '#212529', scale: 2 });
     const imgData = canvas.toDataURL('image/png');
     // Prepare PDF
@@ -120,7 +120,7 @@ const AnalyticsPage: React.FC = () => {
     const headerHeight = 40;
     const margin = 20;
     // Draw header bar
-    const reportDate = format(parseISO(startDate), 'M/d/yyyy');
+    const reportDate = format(parseISO(startDate), 'd MMMM yyyy');
     const period = timeframe.charAt(0).toUpperCase() + timeframe.slice(1);
     const fileName = `analytics_report_${startDate}_${period}.pdf`;
     pdf.setFillColor('#212529');
@@ -128,9 +128,10 @@ const AnalyticsPage: React.FC = () => {
     pdf.setFontSize(16);
     pdf.setTextColor('#ffffff');
     pdf.text(`Analytics Report - ${reportDate} - ${period}`, margin, headerHeight / 2 + 6);
+    // Use half page height to magnify visuals vertically
+    const contentHeight = (pageHeight - headerHeight - 2 * margin) / 2;
     // Compute image scaling to fit half page below header
     const contentWidth = pageWidth - 2 * margin;
-    const contentHeight = (pageHeight - headerHeight - 2 * margin) / 2;
     const scale = Math.min(contentWidth / canvas.width, contentHeight / canvas.height);
     const imgWidth = canvas.width * scale;
     const imgHeight = canvas.height * scale;

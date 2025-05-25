@@ -259,17 +259,20 @@ const ChatWidget: React.FC = () => {
       }
       // Extract timeframe if present
       const tfMatch = lower.match(/\b(weekly|monthly|overall)\b/);
-      // Extract date after 'from', e.g. 'from 25 May'
-      const dateMatch = lower.match(/from\s+(\d{1,2}\s+\w+(?:\s+\d{4})?)/);
+      // Extract date after 'from', supporting ordinal suffixes like '20th May'
+      const dateMatch = lower.match(/from\s+(\d{1,2}(?:st|nd|rd|th)?\s+\w+(?:\s+\d{4})?)/i);
       let dateStr: string;
       if (dateMatch) {
-        const raw = dateMatch[1];
-        const withYear = /\d{4}/.test(raw) ? raw : `${raw} ${new Date().getFullYear()}`;
+        // Remove ordinal suffix (st, nd, rd, th) for parsing
+        let raw = dateMatch[1];
+        raw = raw.replace(/(st|nd|rd|th)/i, '');
+        const withYear = /\b\d{4}\b/.test(raw) ? raw : `${raw} ${new Date().getFullYear()}`;
         const parsed = new Date(withYear);
         dateStr = !isNaN(parsed.getTime())
           ? format(parsed, 'yyyy-MM-dd')
           : format(new Date(), 'yyyy-MM-dd');
       } else {
+        // Default to today's date if no match
         dateStr = format(new Date(), 'yyyy-MM-dd');
       }
       // If timeframe specified, generate immediately
