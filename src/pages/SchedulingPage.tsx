@@ -248,10 +248,6 @@ const SchedulingPage: React.FC = () => {
                   onWeeklyAssign={handleWeeklyAssign}
                 />
               </Box>
-              {/* Auto Schedule button */}
-              <Button variant="contained" color="primary" onClick={handleRunOrchestrator} size="small">
-                Auto Schedule
-              </Button>
               {/* Current Week button */}
               <Button variant="outlined" size="small" onClick={handleGoToCurrentWeek}>
                 Current Week
