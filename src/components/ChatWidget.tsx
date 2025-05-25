@@ -216,35 +216,78 @@ const ChatWidget: React.FC = () => {
     }
   };
 
+  const [pendingReport, setPendingReport] = useState<{ startDate?: string } | null>(null);
+
   const sendMessage = async () => {
     if (!input.trim()) return;
-
-    // In Ask mode, block task execution commands
-    if (mode === 'ask') {
-      const execPattern = /\b(book|schedule|assign|remove|delete|cancel)\b/i;
-      if (execPattern.test(input.trim())) {
-        const botMsg: Message = {
-          sender: 'bot',
-          text: 'Switch to Agent mode to execute scheduling tasks.',
-          timestamp: new Date(),
-          type: 'text'
-        };
-        setMessages(prev => [...prev, botMsg]);
+    // Handle pending report clarification
+    const lower = input.toLowerCase();
+    if (pendingReport) {
+      // Expect weekly, monthly, or overall
+      const tfMatch = lower.match(/\b(weekly|monthly|overall)\b/);
+      if (tfMatch) {
+        const timeframe = tfMatch[1] as 'weekly'|'monthly'|'overall';
+        const dateStr = pendingReport.startDate!;
+        // Show user message
+        const userText = input;
+        setMessages(prev => [...prev, { sender: 'user', text: userText, timestamp: new Date() }]);
+        // Trigger report
+        setMessages(prev => [...prev, { sender: 'bot', text: `Opening Analytics page to generate ${timeframe} report from ${dateStr}...`, timestamp: new Date() }]);
+        localStorage.setItem('chatMessages', JSON.stringify([...messages, { sender: 'bot', text: `Opening Analytics page to generate ${timeframe} report from ${dateStr}...`, timestamp: new Date() }]));
+        window.location.href = `/analytics?reportStart=${dateStr}&reportTimeframe=${timeframe}`;
+        setPendingReport(null);
         setInput('');
-        setLoading(false);
+        return;
+      } else {
+        setMessages(prev => [...prev, { sender: 'bot', text: 'Please specify: weekly, monthly, or overall.', timestamp: new Date() }]);
         return;
       }
     }
-
-    const userMsg: Message = { 
-      sender: 'user', 
-      text: input,
-      timestamp: new Date()
-    };
-    
-    setMessages(prev => [...prev, userMsg]);
-    setInput('');
+    // Intercept generate report requests (Agent mode only)
+    if (lower.includes('generate') && lower.includes('report')) {
+      if (mode !== 'agent') {
+        // Prompt to switch to Agent mode for report generation
+        setMessages(prev => [...prev, { sender: 'bot', text: 'Switch to Agent mode to generate reports.', timestamp: new Date() }]);
+        setInput('');
+        return;
+      }
+      // Extract timeframe if present
+      const tfMatch = lower.match(/\b(weekly|monthly|overall)\b/);
+      // Extract date after 'from', e.g. 'from 25 May'
+      const dateMatch = lower.match(/from\s+(\d{1,2}\s+\w+(?:\s+\d{4})?)/);
+      let dateStr: string;
+      if (dateMatch) {
+        const raw = dateMatch[1];
+        const withYear = /\d{4}/.test(raw) ? raw : `${raw} ${new Date().getFullYear()}`;
+        const parsed = new Date(withYear);
+        dateStr = !isNaN(parsed.getTime())
+          ? format(parsed, 'yyyy-MM-dd')
+          : format(new Date(), 'yyyy-MM-dd');
+      } else {
+        dateStr = format(new Date(), 'yyyy-MM-dd');
+      }
+      // If timeframe specified, generate immediately
+      if (tfMatch) {
+        const timeframe = tfMatch[1] as 'weekly'|'monthly'|'overall';
+        setMessages(prev => [...prev, { sender: 'user', text: input, timestamp: new Date() }]);
+        setMessages(prev => [...prev, { sender: 'bot', text: `Opening Analytics page to generate ${timeframe} report from ${dateStr}...`, timestamp: new Date() }]);
+        localStorage.setItem('chatMessages', JSON.stringify([...messages, { sender: 'bot', text: `Opening Analytics page to generate ${timeframe} report from ${dateStr}...`, timestamp: new Date() }]));
+        window.location.href = `/analytics?reportStart=${dateStr}&reportTimeframe=${timeframe}`;
+        setInput('');
+        return;
+      }
+      // Otherwise ask which type
+      setMessages(prev => [...prev, { sender: 'user', text: input, timestamp: new Date() }]);
+      setMessages(prev => [...prev, { sender: 'bot', text: `Would you like a weekly, monthly, or overall report starting from ${dateStr}?`, timestamp: new Date() }]);
+      setPendingReport({ startDate: dateStr });
+      setInput('');
+      return;
+    }
+    // Default behavior
     setLoading(true);
+    const userText = input;
+    setMessages(prev => [...prev, { sender: 'user', text: userText, timestamp: new Date() }]);
+    setInput('');
 
     try {
       const endpoint = mode === 'ask'

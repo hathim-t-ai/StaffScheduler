@@ -1,4 +1,5 @@
-import React, { useState, useMemo } from 'react';
+/* eslint-disable import/no-duplicates */
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
   Container,
   Box,
@@ -22,6 +23,8 @@ import { Bar } from 'react-chartjs-2';
 import ChartDataLabels from 'chartjs-plugin-datalabels';
 import CalendarTodayIcon from '@mui/icons-material/CalendarToday';
 import axios from 'axios';
+import html2canvas from 'html2canvas';
+import { jsPDF } from 'jspdf';
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend, ChartDataLabels);
 
@@ -100,45 +103,87 @@ const AnalyticsPage: React.FC = () => {
     [projects, staffMembers, gradeRates, filteredTasks]
   );
 
+  const reportRef = useRef<HTMLDivElement>(null);
+  const [shouldGenerate, setShouldGenerate] = useState(false);
+  const handleGenerateReport = async () => {
+    // Hide controls
+    const controlsEl = document.getElementById('report-controls');
+    if (controlsEl) controlsEl.style.display = 'none';
+    if (!reportRef.current) return;
+    // Capture entire analytics section
+    const canvas = await html2canvas(reportRef.current, { backgroundColor: '#212529', scale: 2 });
+    const imgData = canvas.toDataURL('image/png');
+    // Prepare PDF
+    const pdf = new jsPDF('p', 'pt', 'a4');
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+    const headerHeight = 40;
+    const margin = 20;
+    // Draw header bar
+    const reportDate = format(parseISO(startDate), 'M/d/yyyy');
+    const period = timeframe.charAt(0).toUpperCase() + timeframe.slice(1);
+    const fileName = `analytics_report_${startDate}_${period}.pdf`;
+    pdf.setFillColor('#212529');
+    pdf.rect(0, 0, pageWidth, headerHeight, 'F');
+    pdf.setFontSize(16);
+    pdf.setTextColor('#ffffff');
+    pdf.text(`Analytics Report - ${reportDate} - ${period}`, margin, headerHeight / 2 + 6);
+    // Compute image scaling to fit half page below header
+    const contentWidth = pageWidth - 2 * margin;
+    const contentHeight = (pageHeight - headerHeight - 2 * margin) / 2;
+    const scale = Math.min(contentWidth / canvas.width, contentHeight / canvas.height);
+    const imgWidth = canvas.width * scale;
+    const imgHeight = canvas.height * scale;
+    // Add image
+    const xOffset = (pageWidth - imgWidth) / 2;
+    const yOffset = headerHeight + margin;
+    pdf.addImage(imgData, 'PNG', xOffset, yOffset, imgWidth, imgHeight);
+    // Save and restore
+    pdf.save(fileName);
+    if (controlsEl) controlsEl.style.display = '';
+  };
+
+  // Listen for chat-generated report requests (via global event)
+  useEffect(() => {
+    const handler = (e: any) => {
+      const { startDate: sd, timeframe: tf } = e.detail;
+      setStartDate(sd);
+      setTimeframe(tf);
+      setShouldGenerate(true);
+    };
+    window.addEventListener('generate-report', handler as EventListener);
+    return () => window.removeEventListener('generate-report', handler as EventListener);
+  }, []);
+
+  // Handle report requests via URL params (from chat navigation)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const rs = params.get('reportStart');
+    const tf = params.get('reportTimeframe');
+    if (rs && tf && ['weekly','monthly','overall'].includes(tf)) {
+      setStartDate(rs);
+      setTimeframe(tf as 'weekly'|'monthly'|'overall');
+      setShouldGenerate(true);
+    }
+  }, []);
+
+  // Trigger PDF generation when flagged
+  useEffect(() => {
+    if (shouldGenerate) {
+      handleGenerateReport();
+      setShouldGenerate(false);
+    }
+  }, [shouldGenerate]);
+
   return (
     <Container maxWidth={false} disableGutters>
       <NavigationBar title="Analytics" />
-      <Box sx={{ p: 3, bgcolor: 'background.default' }}>
+      <Box ref={reportRef} sx={{ p: 3, bgcolor: 'background.default' }}>
 
         {/* Timeframe Filters */}
-        <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2, gap: 2 }}>
+        <Box id="report-controls" sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2, gap: 2 }}>
           {/* Generate PDF Report Button */}
-          <Button
-            variant="contained"
-            color="primary"
-            onClick={async () => {
-              const rangeFrom = timeframe === 'overall' ? '' : startDate;
-              const rangeTo = timeframe === 'overall' ? '' : (() => {
-                const start = new Date(startDate);
-                return timeframe === 'weekly'
-                  ? format(addDays(start, 6), 'yyyy-MM-dd')
-                  : format(addMonths(start, 1), 'yyyy-MM-dd');
-              })();
-              try {
-                const response = await axios.post(
-                  '/api/report',
-                  { from: startDate, to: rangeTo || startDate },
-                  { responseType: 'blob' }
-                );
-                const blob = new Blob([response.data], { type: 'application/pdf' });
-                const url = window.URL.createObjectURL(blob);
-                const link = document.createElement('a');
-                link.href = url;
-                link.download = `schedule_${startDate}_to_${rangeTo || startDate}.pdf`;
-                document.body.appendChild(link);
-                link.click();
-                link.remove();
-              } catch (err) {
-                console.error('Failed to generate report:', err);
-              }
-            }}
-            sx={{ ml: 2 }}
-          >
+          <Button variant="contained" color="primary" onClick={handleGenerateReport} sx={{ ml: 2 }}>
             Generate Report
           </Button>
           {['weekly', 'monthly', 'overall'].map((key) => (
