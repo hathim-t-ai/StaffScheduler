@@ -135,18 +135,16 @@ export const useAddPageManager = () => {
    */
   const handleImportStaff = async (newStaffMembers: StaffMember[]) => {
     try {
-      // Send each staff member to backend
-      for (const ns of newStaffMembers) {
-        const payload = {
-          name: ns.name || '',
-          grade: ns.grade || '',
-          department: ns.department || '',
-          city: ns.city || '',
-          country: ns.country || '',
-          skills: Array.isArray(ns.skills) ? ns.skills.join(',') : ''
-        };
-        await axios.post('/api/staff', payload);
-      }
+      // Bulk import staff members
+      const rows = newStaffMembers.map(ns => ({
+        name: ns.name || '',
+        grade: ns.grade || '',
+        department: ns.department || '',
+        city: ns.city || '',
+        country: ns.country || '',
+        skills: Array.isArray(ns.skills) ? ns.skills.join(',') : (ns.skills || '')
+      }));
+      await axios.post('/api/staff/bulk', rows);
       // Reload full staff list
       const res = await axios.get('/api/staff');
       dispatch(setStaffMembers(res.data));
@@ -209,15 +207,16 @@ export const useAddPageManager = () => {
    */
   const handleImportProjects = async (newProjects: Project[]) => {
     try {
-      for (const np of newProjects) {
-        const payload = {
-          name: np.name || '',
-          partnerName: np.partnerName || '',
-          teamLead: np.teamLead || '',
-          budget: np.budget || 0
-        };
-        await axios.post('/api/projects', payload);
-      }
+      // Bulk import projects
+      const rows = newProjects.map(np => ({
+        name: np.name || '',
+        description: np.description || '',
+        partnerName: np.partnerName || '',
+        teamLead: np.teamLead || '',
+        budget: np.budget || 0
+      }));
+      await axios.post('/api/projects/bulk', rows);
+      // Reload full projects list
       const res = await axios.get('/api/projects');
       dispatch(setProjects(res.data));
       setSnackbar({ open: true, message: `${newProjects.length} projects imported successfully`, severity: 'success' });

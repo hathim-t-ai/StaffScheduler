@@ -294,27 +294,24 @@ const ImportStaffModal: React.FC<ImportStaffModalProps> = ({ open, onClose, onIm
     onClose();
   };
 
-  // Detect potential duplicates
+  // Detect potential duplicates by name, grade, and department
   const getDuplicateCount = () => {
     const nameSet = new Set<string>();
-    const duplicates: string[] = [];
+    let count = 0;
     
     previewData.forEach(staff => {
-      // Safely access properties and handle possible null/undefined values
       const name = (staff.name || '').toLowerCase();
       const grade = (staff.grade || '').toLowerCase();
-      const city = (staff.city || '').toLowerCase();
-      const country = (staff.country || '').toLowerCase();
-      
-      const key = `${name}-${grade}-${city}-${country}`;
+      const department = (staff.department || '').toLowerCase();
+      const key = `${name}-${grade}-${department}`;
       if (nameSet.has(key)) {
-        duplicates.push(staff.name);
+        count++;
       } else {
         nameSet.add(key);
       }
     });
     
-    return duplicates.length;
+    return count;
   };
 
   const handleBrowseClick = useCallback(() => {
@@ -438,6 +435,7 @@ const ImportStaffModal: React.FC<ImportStaffModalProps> = ({ open, onClose, onIm
                     <Select
                       value={mapping.targetField}
                       onChange={(e) => handleMappingChange(mapping.sourceColumn, e.target.value)}
+                      MenuProps={{ PaperProps: { sx: { bgcolor: 'common.white' } } }}
                       label={`Map &quot;${mapping.sourceColumn}&quot; to:`}
                     >
                       <MenuItem value="">Not Mapped</MenuItem>
@@ -477,21 +475,19 @@ const ImportStaffModal: React.FC<ImportStaffModalProps> = ({ open, onClose, onIm
             
             {getDuplicateCount() > 0 && (
               <Alert severity="warning" sx={{ mb: 2 }}>
-                Detected {getDuplicateCount()} potential duplicates based on name, grade, and location.
-                These will be imported as separate records.
+                Detected {getDuplicateCount()} potential duplicate staff entr{getDuplicateCount() > 1 ? 'ies' : 'y'} based on name, grade, and department.
+                These will be ignored and existing records preserved.
               </Alert>
             )}
             
-            <Paper variant="outlined" sx={{ overflow: 'auto', maxHeight: '40vh' }}>
+            <Paper 
+              variant="outlined" 
+              sx={{ bgcolor: 'common.white', overflow: 'auto', maxHeight: '40vh' }}
+            >
               <Box sx={{ minWidth: 700 }}>
                 <Box 
                   sx={{ 
-                    borderBottom: 1, 
-                    borderColor: 'divider',
-                    bgcolor: 'grey.100',
-                    px: 2,
-                    py: 1,
-                    display: 'flex'
+                    borderBottom: 1, borderColor: 'divider', bgcolor: 'common.white', px: 2, py: 1, display: 'flex'
                   }}
                 >
                   {availableTargetFields.map(field => 

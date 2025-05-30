@@ -10,8 +10,8 @@
     "@mui/system": "^5.14.0",
     "@mui/x-date-pickers": "^6.20.2",
     "@pinecone-database/pinecone": "^6.0.1",
-    "@prisma/client": "^5.22.0",
     "@reduxjs/toolkit": "^1.9.5",
+    "@supabase/supabase-js": "^2.49.8",
     "ag-grid-community": "^30.0.0",
     "ag-grid-react": "^30.0.0",
     "axios": "^1.4.0",
@@ -29,7 +29,6 @@
     "notistack": "^3.0.2",
     "openai": "^4.10.0",
     "papaparse": "^5.4.1",
-    "prisma": "^5.22.0",
     "react": "^18.2.0",
     "react-chartjs-2": "^5.2.0",
     "react-dom": "^18.2.0",
@@ -39,7 +38,6 @@
     "react-router-dom": "^6.11.2",
     "react-scripts": "5.0.1",
     "redux-persist": "^6.0.0",
-    "sqlite3": "^5.1.7",
     "uuid": "^11.1.0",
     "xlsx": "^0.18.5",
     "yup": "^1.2.0",
@@ -62,6 +60,7 @@
     "eslint-plugin-react-hooks": "^4.6.0",
     "postcss": "^8.4.24",
     "prettier": "^3.0.0",
+    "supertest": "^7.1.1",
     "tailwindcss": "^3.3.2",
     "typescript": "^4.9.5"
   },
@@ -74,7 +73,8 @@
     "eject": "react-scripts eject",
     "lint": "eslint src/**/*.{ts,tsx}",
     "format": "prettier --write src/**/*.{ts,tsx,css}",
-    "serve-chat": "PORT=5001 node server.js"
+    "serve-chat": "PORT=5001 node server.js",
+    "truncate-db": "node scripts/truncateDb.js"
   },
   "proxy": "http://localhost:5001",
   "eslintConfig": {
@@ -94,5 +94,8 @@
       "last 1 firefox version",
       "last 1 safari version"
     ]
+  },
+  "prisma": {
+    "seed": "node prisma/seed.js"
   }
 }

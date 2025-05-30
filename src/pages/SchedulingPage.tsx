@@ -7,7 +7,7 @@ import DeleteIcon from '@mui/icons-material/Delete';
 // Import Redux and API utilities
 import { useSelector, useDispatch } from 'react-redux';
 import { RootState } from '../store';
-import axios from 'axios';
+import { createClient } from '@supabase/supabase-js';
 import { v4 as uuidv4 } from 'uuid';
 
 // Import app components
@@ -27,22 +27,35 @@ import { isAtEndDate as checkIsAtEndDate } from '../utils/ScheduleUtils';
 import { StaffMember } from '../store/slices/staffSlice';
 import { clearSchedule, clearScheduleForStaff, setTasks, setStartDate } from '../store/slices/scheduleSlice';
 
+// Initialize Supabase client
+const supabaseUrl = process.env.REACT_APP_SUPABASE_URL;
+const supabaseAnonKey = process.env.REACT_APP_SUPABASE_ANON_KEY;
+const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
 const SchedulingPage: React.FC = () => {
   const dispatch = useDispatch();
   
-  // Function to load assignments from backend
+  // Function to load assignments from Supabase
   const loadAssignments = useCallback(async () => {
     try {
-      const res = await axios.get(`/api/assignments?_=${new Date().getTime()}`);
-      const tasks = res.data.map((a: { id: string; staffId: string; date: string; projectName: string; hours: number; projectId: string; }) => ({
+      const { data, error } = await supabase
+        .from('assignments')
+        .select('*');
+      
+      if (error) {
+        console.error('Error loading assignments', error);
+        return;
+      }
+      
+      const tasks = data.map((a: { id: string; staff_id: string; date: string; project_name: string; hours: number; project_id: string; }) => ({
         id: a.id,
-        staffId: a.staffId,
+        staffId: a.staff_id,
         date: a.date,
-        taskType: a.projectName,
+        taskType: a.project_name,
         hours: a.hours,
-        projectId: a.projectId,
+        projectId: a.project_id,
       }));
-      console.log('[SchedulingPage] Tasks fetched from /api/assignments:', tasks);
+      console.log('[SchedulingPage] Tasks fetched from Supabase:', tasks);
       dispatch(setTasks(tasks));
     } catch (err) {
       console.error('Error loading assignments', err);
@@ -160,7 +173,11 @@ const SchedulingPage: React.FC = () => {
         payload.staffIds = selectedStaffIds;
       }
       // Delete assignments from server
-      await axios.delete('/api/assignments/range', { data: payload });
+      await supabase
+        .from('assignments')
+        .delete()
+        .gte('date', from)
+        .lte('date', to);
       // Clear assignments in local Redux state and localStorage
       if (selectedStaffIds.length > 0) {
         dispatch(clearScheduleForStaff(selectedStaffIds));
@@ -183,10 +200,10 @@ const SchedulingPage: React.FC = () => {
     try {
       // Use the current start date for daily scheduling
       const date = currentStartDate.toISOString().split('T')[0];
-      const res = await axios.post('/api/orchestrate', { date });
-      const { resolvedMatches } = res.data;
+      const res = await supabase.from('orchestrate').insert([{ date }]).select();
+      const { data } = res;
       // Transform resolvedMatches into ScheduleTask objects
-      const tasks = resolvedMatches.map((match: any) => ({
+      const tasks = data.map((match: any) => ({
         id: uuidv4(),
         staffId: match.staffId,
         date: match.date,

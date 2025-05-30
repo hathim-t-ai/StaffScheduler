@@ -189,7 +189,7 @@ const DataTable = <T extends Record<string, any>>({
   };
 
   return (
-    <Paper sx={{ width: '100%', overflow: 'hidden' }}>
+    <Paper sx={{ width: '100%' }}>
       {/* Bulk delete controls */}
       {selectedRows.length > 0 && (
         <Box sx={{ 

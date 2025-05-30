@@ -26,7 +26,7 @@ A web-based staff scheduling SaaS application for managing workforce allocation,
 
 ### Backend
 - Node.js with Express
-- Prisma ORM with SQLite database
+- Supabase Postgres client (`@supabase/supabase-js`)
 - OpenAI integration for AI features
 - RESTful API architecture
 
@@ -60,7 +60,9 @@ A web-based staff scheduling SaaS application for managing workforce allocation,
    Create a `.env` file in the root directory with the following:
    ```
    OPENAI_API_KEY=your_openai_api_key_here
-   DATABASE_URL="file:./prisma/dev.db"
+   SUPABASE_URL=https://rqqsluttocudrrhvxmot.supabase.co
+   SUPABASE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJxcXNsdXR0b2N1ZHJyaHZ4bW90Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDgzNDY2MTIsImV4cCI6MjA2MzkyMjYxMn0.0b7eUdKIBUGBIHF90ieiIf39dLoWzN_-BI_6uDn76YA
+   SUPABASE_SERVICE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0ODM0NjYxMiwiZXhwIjoyMDYzOTIyNjEyfQ.2JF1MTAqy_BEk6BhBDP2NEzsl1RCCnwQqtWp7nTPO0o
    ```
 
 4. Start both services (Node.js and Python)

@@ -1,4 +1,5 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
+import { createClient } from '@supabase/supabase-js';
 
 export interface ScheduleTask {
   id: string;
@@ -17,18 +18,32 @@ interface ScheduleState {
   startDate: string; // Current week's start date
 }
 
-// Load schedule data from localStorage
-const loadScheduleData = (): Pick<ScheduleState, 'tasks' | 'startDate'> => {
+// Initialize Supabase client
+const supabaseUrl = process.env.REACT_APP_SUPABASE_URL;
+const supabaseAnonKey = process.env.REACT_APP_SUPABASE_ANON_KEY;
+const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+// Load schedule data from Supabase
+const loadScheduleData = async (): Promise<Pick<ScheduleState, 'tasks' | 'startDate'>> => {
   try {
-    const storedTasks = localStorage.getItem('scheduleTasks');
-    const storedStartDate = localStorage.getItem('scheduleStartDate');
+    const { data, error } = await supabase
+      .from('assignments')
+      .select('*');
+    
+    if (error) {
+      console.error('Error loading schedule data from Supabase', error);
+      return {
+        tasks: [],
+        startDate: new Date().toISOString().split('T')[0]
+      };
+    }
     
     return {
-      tasks: storedTasks ? JSON.parse(storedTasks) : [],
-      startDate: storedStartDate || new Date().toISOString().split('T')[0]
+      tasks: data,
+      startDate: new Date().toISOString().split('T')[0]
     };
   } catch (error) {
-    console.error('Error loading schedule data from localStorage', error);
+    console.error('Error loading schedule data from Supabase', error);
     return {
       tasks: [],
       startDate: new Date().toISOString().split('T')[0]
@@ -37,7 +52,7 @@ const loadScheduleData = (): Pick<ScheduleState, 'tasks' | 'startDate'> => {
 };
 
 // Load saved data
-const savedData = loadScheduleData();
+const savedData = await loadScheduleData();
 
 const initialState: ScheduleState = {
   tasks: savedData.tasks,
@@ -61,15 +76,15 @@ const scheduleSlice = createSlice({
       state.tasks = action.payload;
       state.filteredTasks = action.payload;
       
-      // Save to localStorage
-      localStorage.setItem('scheduleTasks', JSON.stringify(action.payload));
+      // Save to Supabase
+      supabase.from('assignments').upsert(action.payload);
     },
     addTask: (state, action: PayloadAction<ScheduleTask>) => {
       state.tasks.push(action.payload);
       state.filteredTasks = state.tasks;
       
-      // Save to localStorage
-      localStorage.setItem('scheduleTasks', JSON.stringify(state.tasks));
+      // Save to Supabase
+      supabase.from('assignments').insert([action.payload]);
     },
     updateTask: (state, action: PayloadAction<ScheduleTask>) => {
       const index = state.tasks.findIndex(
@@ -80,8 +95,8 @@ const scheduleSlice = createSlice({
       }
       state.filteredTasks = state.tasks;
       
-      // Save to localStorage
-      localStorage.setItem('scheduleTasks', JSON.stringify(state.tasks));
+      // Save to Supabase
+      supabase.from('assignments').update(action.payload).eq('id', action.payload.id);
     },
     deleteTask: (state, action: PayloadAction<string>) => {
       state.tasks = state.tasks.filter(
@@ -89,8 +104,8 @@ const scheduleSlice = createSlice({
       );
       state.filteredTasks = state.tasks;
       
-      // Save to localStorage
-      localStorage.setItem('scheduleTasks', JSON.stringify(state.tasks));
+      // Save to Supabase
+      supabase.from('assignments').delete().eq('id', action.payload);
     },
     filterTasksByStaff: (state, action: PayloadAction<string[]>) => {
       const staffIds = action.payload;
@@ -106,9 +121,6 @@ const scheduleSlice = createSlice({
     },
     setStartDate: (state, action: PayloadAction<string>) => {
       state.startDate = action.payload;
-      
-      // Save to localStorage
-      localStorage.setItem('scheduleStartDate', action.payload);
     },
     navigateWeek: (state, action: PayloadAction<'previous' | 'next'>) => {
       const currentDate = new Date(state.startDate);
@@ -120,23 +132,21 @@ const scheduleSlice = createSlice({
       
       const newStartDate = newDate.toISOString().split('T')[0];
       state.startDate = newStartDate;
-      
-      // Save to localStorage
-      localStorage.setItem('scheduleStartDate', newStartDate);
     },
     clearSchedule: (state) => {
       state.tasks = [];
       state.filteredTasks = [];
       
-      // Clear from localStorage
-      localStorage.removeItem('scheduleTasks');
+      // Clear from Supabase
+      supabase.from('assignments').delete().neq('id', '');
     },
     clearScheduleForStaff: (state, action: PayloadAction<string[]>) => {
       const staffIdsToClear = action.payload;
       state.tasks = state.tasks.filter(task => !staffIdsToClear.includes(task.staffId));
       state.filteredTasks = state.tasks;
-      // Save updated tasks to localStorage
-      localStorage.setItem('scheduleTasks', JSON.stringify(state.tasks));
+      
+      // Save updated tasks to Supabase
+      supabase.from('assignments').delete().in('staff_id', staffIdsToClear);
     },
     removeRange: (state, action: PayloadAction<{ from: string; to: string }>) => {
       const { from, to } = action.payload;
@@ -145,8 +155,9 @@ const scheduleSlice = createSlice({
         return d < new Date(from) || d > new Date(to);
       });
       state.filteredTasks = state.tasks;
-      // Save updated tasks to localStorage
-      localStorage.setItem('scheduleTasks', JSON.stringify(state.tasks));
+      
+      // Save updated tasks to Supabase
+      supabase.from('assignments').delete().gte('date', from).lte('date', to);
     },
   },
 });

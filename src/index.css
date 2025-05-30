@@ -16,7 +16,7 @@ html, body {
   font-family: 'Roboto', Arial, sans-serif;
   font-size: 14px;
   color: #212121;
-  background-color: #FFFFFF;
+  background-color: #212529; /* match theme.background.default */
 }
 
 #root {

@@ -1,4 +1,12 @@
+import { createClient } from '@supabase/supabase-js';
 import { ScheduleTask } from '../store/slices/scheduleSlice';
+
+// Export a function to get the Supabase client
+export const getSupabaseClient = () => {
+  const supabaseUrl = process.env.REACT_APP_SUPABASE_URL || 'http://localhost:54321';
+  const supabaseAnonKey = process.env.REACT_APP_SUPABASE_ANON_KEY || 'test-key';
+  return createClient(supabaseUrl, supabaseAnonKey);
+};
 
 // Format date for display (e.g., "15 May")
 export const formatDate = (date: Date): string => {
@@ -49,7 +57,7 @@ export const isAtEndDate = (currentStartDate: Date): boolean => {
 
 // Get background color based on task type and hours
 export const getBackgroundColor = (
-  tasks: ScheduleTask[]
+  tasks: Partial<ScheduleTask>[]
 ): string => {
   if (!tasks || tasks.length === 0) {
     return '#FFFFFF';
@@ -87,7 +95,7 @@ export const getBackgroundColor = (
 };
 
 // Generate text summary of tasks for a cell
-export const getTaskText = (tasks: ScheduleTask[]): string => {
+export const getTaskText = (tasks: Partial<ScheduleTask>[]): string => {
   if (!tasks || tasks.length === 0) {
     return 'No assignments';
   }
@@ -138,18 +146,28 @@ export const getTaskText = (tasks: ScheduleTask[]): string => {
 };
 
 // Gets total hours assigned to staff member in a week
-export const getWeeklyHours = (
+export const getWeeklyHours = async (
   staffId: string,
   weekDates: Date[],
-  tasks: ScheduleTask[]
-): number => {
+  tasks: Partial<ScheduleTask>[]
+): Promise<number> => {
   let totalHours = 0;
   
   for (const date of weekDates) {
     const dateString = formatDateISO(date);
-    const dayTasks = tasks.filter(
-      task => task.staffId === staffId && task.date === dateString
-    );
+    const supabase = getSupabaseClient();
+    const response = await supabase
+      .from('assignments')
+      .select('*')
+      .eq('staff_id', staffId)
+      .eq('date', dateString);
+    
+    if (response.error) {
+      console.error('Error fetching assignments:', response.error);
+      continue;
+    }
+    
+    const dayTasks = response.data || [];
     
     // Skip leave days
     const isLeave = dayTasks.some(
@@ -174,14 +192,24 @@ export const getWeeklyHours = (
 };
 
 // Check if staff has any assignments (excluding 'Available')
-export const hasAssignments = (
+export const hasAssignments = async (
   staffId: string,
   date: string,
-  tasks: ScheduleTask[]
-): boolean => {
-  const dayTasks = tasks.filter(
-    task => task.staffId === staffId && task.date === date
-  );
+  tasks: Partial<ScheduleTask>[]
+): Promise<boolean> => {
+  const supabase = getSupabaseClient();
+  const response = await supabase
+    .from('assignments')
+    .select('*')
+    .eq('staff_id', staffId)
+    .eq('date', date);
+  
+  if (response.error) {
+    console.error('Error fetching assignments:', response.error);
+    return false;
+  }
+  
+  const dayTasks = response.data || [];
   
   return dayTasks.some(task => 
     task.taskType !== 'Available' && 

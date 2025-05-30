@@ -318,21 +318,17 @@ const ImportProjectModal: React.FC<ImportProjectModalProps> = ({ open, onClose, 
     onClose();
   };
 
-  // Detect potential duplicates
+  // Detect potential duplicates by project name only
   const getDuplicateCount = () => {
     const nameSet = new Set<string>();
     const duplicates: string[] = [];
     
     previewData.forEach(project => {
-      // Safely access properties and handle possible null/undefined values
       const name = (project.name || '').toLowerCase();
-      const partnerName = (project.partnerName || '').toLowerCase();
-      
-      const key = `${name}-${partnerName}`;
-      if (nameSet.has(key)) {
+      if (nameSet.has(name)) {
         duplicates.push(project.name);
       } else {
-        nameSet.add(key);
+        nameSet.add(name);
       }
     });
     
@@ -392,6 +388,7 @@ const ImportProjectModal: React.FC<ImportProjectModalProps> = ({ open, onClose, 
               elevation={3}
               sx={{ 
                 p: 5, 
+                bgcolor: 'common.white',
                 borderRadius: 2,
                 border: '2px dashed',
                 borderColor: 'divider',
@@ -464,6 +461,7 @@ const ImportProjectModal: React.FC<ImportProjectModalProps> = ({ open, onClose, 
                     <Select
                       value={mapping.targetField}
                       onChange={(e) => handleMappingChange(mapping.sourceColumn, e.target.value)}
+                      MenuProps={{ PaperProps: { sx: { bgcolor: 'common.white' } } }}
                       label={`Map &quot;${mapping.sourceColumn}&quot; to:`}
                     >
                       <MenuItem value="">Not Mapped</MenuItem>
@@ -503,18 +501,21 @@ const ImportProjectModal: React.FC<ImportProjectModalProps> = ({ open, onClose, 
             
             {getDuplicateCount() > 0 && (
               <Alert severity="warning" sx={{ mb: 2 }}>
-                Detected {getDuplicateCount()} potential duplicates based on project name and partner.
-                These will be imported as separate records.
+                Detected {getDuplicateCount()} potential duplicate project name{getDuplicateCount() > 1 ? 's' : ''}.
+                These will be ignored and existing records preserved.
               </Alert>
             )}
             
-            <Paper variant="outlined" sx={{ overflow: 'auto', maxHeight: '40vh' }}>
+            <Paper 
+              variant="outlined" 
+              sx={{ bgcolor: 'common.white', overflow: 'auto', maxHeight: '40vh' }}
+            >
               <Box sx={{ minWidth: 700 }}>
                 <Box 
                   sx={{ 
                     borderBottom: 1, 
                     borderColor: 'divider',
-                    bgcolor: 'grey.100',
+                    bgcolor: 'common.white',
                     px: 2,
                     py: 1,
                     display: 'flex'

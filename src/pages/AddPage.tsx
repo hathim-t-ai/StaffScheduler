@@ -1,4 +1,5 @@
 /* eslint-disable import/no-duplicates */
+/* eslint-disable no-alert */
 import React, { useState, useEffect } from 'react';
 import { 
   Container, 
@@ -141,12 +142,15 @@ const AddPage: React.FC = () => {
     <Container maxWidth={false} disableGutters>
       <NavigationBar title="Add Staff & Projects" />
       
-      <Box sx={{ display: 'flex', height: 'calc(100vh - 64px)' }}>
+      <Box sx={{ display: 'flex', minHeight: 'calc(100vh - 64px)' }}>
         {/* Sidebar */}
-        <Sidebar selected={tabValue} onSelect={newValue => setTabValue(newValue)} />
+        <Sidebar
+          selected={tabValue}
+          onSelect={newValue => handleTabChange({} as React.SyntheticEvent, newValue)}
+        />
         {/* Content Area */}
-        <Box sx={{ flexGrow: 1, overflow: 'auto', bgcolor: 'background.default', pt: 2, px: 2 }}>
-          <Paper elevation={2} sx={{ borderRadius: 2, overflow: 'hidden', bgcolor: 'background.default' }}>
+        <Box sx={{ flexGrow: 1, bgcolor: 'background.default', pt: 2, px: 2 }}>
+          <Paper elevation={2} sx={{ borderRadius: 2, bgcolor: 'background.default' }}>
             {/* People Tab Content */}
             <TabPanel value={tabValue} index={0}>
               <Box sx={{ display: 'flex', alignItems: 'center', mb: 2, bgcolor: 'background.default', color: 'common.white', px: 2, py: 1 }}>
@@ -154,7 +158,12 @@ const AddPage: React.FC = () => {
                 <Box sx={{ ml: 'auto', display: 'flex', alignItems: 'center', gap: 1 }}>
                   {selectedStaffIds.length > 0 && (
                     <>
-                      <Button variant="outlined" color="error" onClick={() => { handleDeleteMultipleStaffRows(selectedStaffIds); setSelectedStaffIds([]); }}>Delete</Button>
+                      <Button variant="outlined" color="error" onClick={() => {
+                        if (window.confirm(`Are you sure you want to delete ${selectedStaffIds.length} staff ${selectedStaffIds.length > 1 ? 'members' : 'member'}? This action cannot be undone.`)) {
+                          handleDeleteMultipleStaffRows(selectedStaffIds);
+                          setSelectedStaffIds([]);
+                        }
+                      }}>Delete</Button>
                       <Button variant="outlined" color="primary" disabled={selectedStaffIds.length !== 1} onClick={() => handleEditStaffRow(selectedStaffIds[0])}>Edit</Button>
                     </>
                   )}
@@ -178,7 +187,12 @@ const AddPage: React.FC = () => {
                 <Box sx={{ ml: 'auto', display: 'flex', alignItems: 'center', gap: 1 }}>
                   {selectedProjectIds.length > 0 && (
                     <>
-                      <Button variant="outlined" color="error" onClick={() => { handleDeleteMultipleProjectRows(selectedProjectIds); setSelectedProjectIds([]); }}>Delete</Button>
+                      <Button variant="outlined" color="error" onClick={() => {
+                        if (window.confirm(`Are you sure you want to delete ${selectedProjectIds.length} project${selectedProjectIds.length > 1 ? 's' : ''}? This action cannot be undone.`)) {
+                          handleDeleteMultipleProjectRows(selectedProjectIds);
+                          setSelectedProjectIds([]);
+                        }
+                      }}>Delete</Button>
                       <Button variant="outlined" color="primary" disabled={selectedProjectIds.length !== 1} onClick={() => handleEditProjectRow(selectedProjectIds[0])}>Edit</Button>
                     </>
                   )}

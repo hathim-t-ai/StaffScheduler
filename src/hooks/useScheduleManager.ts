@@ -12,7 +12,13 @@ import { StaffMember } from '../store/slices/staffSlice';
 import { Project } from '../store/slices/projectSlice';
 import { ContextMenuPosition, DragItem, NotificationState, StaffHours } from '../components/schedule/types';
 import { getDatesForCurrentWeek, formatDateISO } from '../utils/ScheduleUtils';
+import { createClient } from '@supabase/supabase-js';
 import axios from 'axios';
+
+// Initialize Supabase client
+const supabaseUrl = process.env.REACT_APP_SUPABASE_URL!;
+const supabaseAnonKey = process.env.REACT_APP_SUPABASE_ANON_KEY!;
+const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 export const useScheduleManager = (staffMembers: StaffMember[], projects: Project[]) => {
   const dispatch = useDispatch();

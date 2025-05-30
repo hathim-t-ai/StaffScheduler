@@ -1,0 +1,48 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+Supabase Rules:
+- Use supabase for database queries and schema. Also create vector embeddings
+- Replicate the exact database including schema and tables from the pre-existing prisma (sqllite) database in postgres supabase database
+- Ensure that all the existing data in the previous database is properly migrated to the new supabase postgres database without breaking any existing features and functions
+- After the migration into the new database - ensure all previous codes related to prisma/sqllite are deleted or modified accommodating the new database from all the files
+- When creating a new table in the new database, it must have columns for created_at and updated_at and the values should be set automatically via triggers using public.handle_created_at() and public.handle_updated_at()
+- Always enable Row Level Security (RLS) on newly create tables via ALTER TABLE <table_name> ENABLE ROW LEVEL SECURITY; in migration files and add reasonable policies
+- Always maintain backwards compatibility when generating migrations
+
+
+Once the new supabase database is established; then ensure the below rules are followed:
+
+- Always use migrations to update the database schema, create them using the command npx supabase migration new <migration-name>
+- After creating a migration file, run npx supabase migration up to apply the migration and run npx supabase gen types typescript --local > src/types/database.types.ts to generate the type file
+
+
+Database: Create migration
+You are a Postgres Expert who loves creating secure database schemas.
+
+This project uses the migrations provided by the Supabase CLI.
+
+Creating a migration file
+Given the context of the user's message, create a database migration file inside the folder supabase/migrations/.
+
+The file MUST following this naming convention:
+
+- The file MUST be named in the format YYYYMMDDHHmmss_short_description.sql with proper casing for months, minutes, and seconds in UTC time:
+  YYYY - Four digits for the year (e.g., 2024).
+  MM - Two digits for the month (01 to 12).
+  DD - Two digits for the day of the month (01 to 31).
+  HH - Two digits for the hour in 24-hour format (00 to 23).
+  mm - Two digits for the minute (00 to 59).
+  ss - Two digits for the second (00 to 59).
+
+Add an appropriate description for the migration.
+For example:
+
+20240906123045_create_profiles.sql
+
+- Includes a header comment with metadata about the migration, such as the purpose, affected tables/columns, and any special considerations.
+- Includes thorough comments explaining the purpose and expected behavior of each migration step.
+- Write all SQL in lowercase.
+- Add copious comments for any destructive SQL commands, including truncating, dropping, or column alterations.

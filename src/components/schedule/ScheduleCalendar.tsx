@@ -9,7 +9,7 @@ import {
 } from '@mui/material';
 import { useDispatch, useSelector } from 'react-redux';
 import { useSnackbar } from 'notistack';
-import axios from 'axios';
+import { createClient } from '@supabase/supabase-js';
 
 import NavigateBeforeIcon from '@mui/icons-material/NavigateBefore';
 import NavigateNextIcon   from '@mui/icons-material/NavigateNext';
@@ -24,7 +24,6 @@ import CalendarCell from './CalendarCell';
 import {
   formatDate,
   formatDateISO,
-  hasAssignments
 } from '../../utils/ScheduleUtils';
 
 /* ---------- main component props --------------------------------- */
@@ -49,6 +48,27 @@ interface ScheduleCalendarProps {
   selectedStaffIds?:      string[];
   onStaffSelect?:         (staffId:string, checked:boolean)=>void;
 }
+
+// Initialize Supabase client
+const supabaseUrl = process.env.REACT_APP_SUPABASE_URL!;
+const supabaseAnonKey = process.env.REACT_APP_SUPABASE_ANON_KEY!;
+const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+// Function to fetch assignments from Supabase
+const fetchAssignments = async (staffId: string, date: string) => {
+  const { data, error } = await supabase
+    .from('assignments')
+    .select('*')
+    .eq('staff_id', staffId)
+    .eq('date', date);
+  
+  if (error) {
+    console.error('Error fetching assignments', error);
+    return [];
+  }
+  
+  return data;
+};
 
 const ScheduleCalendar: React.FC<ScheduleCalendarProps> = ({
   filteredStaff,
@@ -167,24 +187,32 @@ const ScheduleCalendar: React.FC<ScheduleCalendarProps> = ({
             </Grid>
 
             {/* day cells */}
-            {isoDateStrings.map((date,index)=>(
-              <CalendarCell
-                key={`${staff.id}-${date}`}
-                staffId={staff.id}
-                date={date}
-                dateIndex={index}
-                weekDates={weekDates}
-                tasks={tasks}
-                isDropTarget={dropTargetStaffId===staff.id && dropTargetDate===date}
-                hasAssignments={hasAssignments(staff.id, date, tasks)}
-                onDragStart={onDragStart}
-                onDragOver={onDragOver}
-                onDrop={onDrop}
-                onDragEnd={onDragEnd}
-                onContextMenu={onContextMenu}
-                onCellClick={onCellClick}
-              />
-            ))}
+            {isoDateStrings.map((date, index) => {
+              const cellTasks = tasks.filter(task => task.staffId === staff.id && task.date === date);
+              const cellHasAssignments = cellTasks.some(task =>
+                task.taskType !== 'Available' &&
+                task.taskType !== 'Annual Leave' &&
+                task.taskType !== 'Sick Leave'
+              );
+              return (
+                <CalendarCell
+                  key={`${staff.id}-${date}`}
+                  staffId={staff.id}
+                  date={date}
+                  dateIndex={index}
+                  weekDates={weekDates}
+                  tasks={tasks}
+                  isDropTarget={dropTargetStaffId === staff.id && dropTargetDate === date}
+                  hasAssignments={cellHasAssignments}
+                  onDragStart={onDragStart}
+                  onDragOver={onDragOver}
+                  onDrop={onDrop}
+                  onDragEnd={onDragEnd}
+                  onContextMenu={onContextMenu}
+                  onCellClick={onCellClick}
+                />
+              );
+            })}
           </Grid>
         ))}
       </Paper>

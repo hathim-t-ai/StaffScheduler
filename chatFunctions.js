@@ -1,7 +1,7 @@
 // chatFunctions.js
 // Data helpers & NLP parsers for StaffScheduler
 
-const prisma = require('./prismaClient');
+const supabase = require('./supabaseClient');
 
 /* ------------------------------------------------------------------ */
 /* 1. Utility helpers                                                  */
@@ -84,20 +84,20 @@ async function getStaffAssignments({ staffName, from, to }) {
     const fromMatch = staffName.match(/^(.*?)\s+from\s+/i);
     const cleanedName = fromMatch ? fromMatch[1].trim() : staffName;
 
-    const allStaff = await prisma.staff.findMany();
+    const { data: allStaff, error: staffError } = await supabase.from('staff').select('*');
+    if (staffError) { console.error('Error fetching staff:', staffError); return { error: staffError.message }; }
     const staff = allStaff.find(s => s.name.toLowerCase() === cleanedName.toLowerCase());
     if (!staff) {
       return { error: 'Staff not found', staffName, availableStaff: allStaff.map(s => s.name) };
     }
 
-    const assignments = await prisma.assignment.findMany({
-      where: {
-        staffId: staff.id,
-        date: { gte: fromDate, lte: toDate }
-      },
-      include: { project: true }
-    });
-
+    const { data: assignments, error: assignmentsError } = await supabase
+      .from('assignments')
+      .select('*, project(*)')
+      .eq('staff_id', staff.id)
+      .gte('date', fromDate)
+      .lte('date', toDate);
+    if (assignmentsError) { console.error('Error fetching assignments:', assignmentsError); return { error: assignmentsError.message }; }
     const formatted = assignments.map(a => ({
       projectId:   a.projectId,
       projectName: a.project.name,
@@ -122,15 +122,22 @@ async function getStaffAssignments({ staffName, from, to }) {
 }
 
 async function getAllStaff() {
-  return prisma.staff.findMany();
+  const { data, error } = await supabase.from('staff').select('*');
+  if (error) throw error;
+  return data;
 }
 
 async function getProjectDetails({ projectName }) {
-  const all = await prisma.project.findMany();
+  const { data: all, error: projError } = await supabase.from('projects').select('*');
+  if (projError) throw projError;
   const project = all.find(p => p.name.toLowerCase() === projectName.toLowerCase());
   if (!project) return null;
 
-  const assignments = await prisma.assignment.findMany({ where: { projectId: project.id } });
+  const { data: assignments, error: asgError } = await supabase
+    .from('assignments')
+    .select('*')
+    .eq('project_id', project.id);
+  if (asgError) throw asgError;
   const consumed = assignments.reduce((s,a)=>s+a.hours,0);
   return {
     projectId: project.id,
@@ -145,7 +152,8 @@ async function getProjectDetails({ projectName }) {
 }
 
 async function getAllProjects() {
-  const allProjects = await prisma.project.findMany();
+  const { data: allProjects, error } = await supabase.from('projects').select('*');
+  if (error) throw error;
   return allProjects.map(p => ({
     projectId: p.id,
     projectName: p.name,
@@ -159,10 +167,8 @@ async function getAllProjects() {
 async function getTeamAvailability({ from, to }) {
   const start = new Date(from);
   const end   = new Date(to);
-  const staff = await prisma.staff.findMany();
-  const assignments = await prisma.assignment.findMany({
-    where:{date:{gte:start,lte:end}}
-  });
+  const staff = await supabase.from('staff').select('*');
+  const assignments = await supabase.from('assignments').select('*').gte('date', start).lte('date', end);
 
   const days = Math.floor((end - start)/(1000*60*60*24))+1;
   const totalPossible = days * 8;
@@ -181,20 +187,18 @@ async function getTeamAvailability({ from, to }) {
 async function getProductiveHours({ from, to }) {
   const start = new Date(from);
   const end   = new Date(to);
-  const assignments = await prisma.assignment.findMany({ where:{date:{gte:start,lte:end}} });
+  const assignments = await supabase.from('assignments').select('*').gte('date', start).lte('date', end);
   return { from, to, totalProductiveHours: assignments.reduce((s,a)=>s+a.hours,0) };
 }
 
 async function getStaffProductiveHours({ staffName, from, to }) {
-  const allStaff = await prisma.staff.findMany();
+  const allStaff = await supabase.from('staff').select('*');
   const staff = allStaff.find(s => s.name.toLowerCase() === staffName.toLowerCase());
   if (!staff) return { staffName, productiveHours: 0 };
 
   const start = new Date(from);
   const end   = new Date(to);
-  const assignments = await prisma.assignment.findMany({
-    where:{ staffId: staff.id, date:{gte:start,lte:end} }
-  });
+  const assignments = await supabase.from('assignments').select('*').eq('staffId', staff.id).gte('date', start).lte('date', end);
   const total = assignments.reduce((s,a)=>s+a.hours,0);
   return { staffId: staff.id, staffName: staff.name, from, to, productiveHours: total };
 }
@@ -208,7 +212,7 @@ async function createAssignmentsFromSchedule({ assignments }) {
 
   for (const row of assignments) {
     try {
-      const saved = await prisma.assignment.upsert({
+      const saved = await supabase.from('assignments').upsert({
         where : {
           staffId_projectId_date: {            // ← name must match your @@unique
             staffId  : row.staffId,
@@ -366,7 +370,7 @@ async function directBooking({ staffName, projectBookings, date }) {
     }
 
     /* ---------- entity look-ups ---------- */
-    const allStaff = await prisma.staff.findMany();
+    const allStaff = await supabase.from('staff').select('*');
     const staff = allStaff.find(s =>
       s.name.toLowerCase().includes(staffName.toLowerCase()) ||
       staffName.toLowerCase().includes(s.name.toLowerCase())
@@ -379,7 +383,7 @@ async function directBooking({ staffName, projectBookings, date }) {
       };
     }
 
-    const allProjects = await prisma.project.findMany();
+    const allProjects = await supabase.from('projects').select('*');
     const found = [], missing = [];
     for (const b of projectBookings) {
       const p = allProjects.find(pr =>
@@ -401,9 +405,7 @@ async function directBooking({ staffName, projectBookings, date }) {
     const dayStart = new Date(Date.UTC(target.getFullYear(), target.getMonth(), target.getDate()));
     const dayEnd   = new Date(Date.UTC(target.getFullYear(), target.getMonth(), target.getDate(), 23, 59, 59, 999));
 
-    const todays = await prisma.assignment.findMany({
-      where:{ staffId: staff.id, date:{ gte: dayStart, lte: dayEnd } }
-    });
+    const todays = await supabase.from('assignments').select('*').eq('staffId', staff.id).gte('date', dayStart).lte('date', dayEnd);
     const current = todays.reduce((s,a)=>s+a.hours,0);
     const incoming = found.reduce((s,f)=>s+f.hours,0);
     if (current + incoming > 8) {
@@ -417,15 +419,12 @@ async function directBooking({ staffName, projectBookings, date }) {
     /* ---------- create assignments ---------- */
     const created = [];
     for (const f of found) {
-      const a = await prisma.assignment.create({
-        data:{
-          staffId:  staff.id,
-          projectId:f.project.id,
-          date:     dayStart,
-          hours:    f.hours
-        },
-        include:{ project:true, staff:true }
-      });
+      const a = await supabase.from('assignments').insert({
+        staffId:  staff.id,
+        projectId:f.project.id,
+        date:     dayStart,
+        hours:    f.hours
+      }).returning('*');
       created.push({
         id:a.id,
         staffName:a.staff.name,
@@ -463,7 +462,7 @@ async function directBooking({ staffName, projectBookings, date }) {
 }
 
 async function getTotalBudget() {
-  const projects = await prisma.project.findMany();
+  const projects = await supabase.from('projects').select('*');
   const totalBudget = projects.reduce((sum, p) => sum + (typeof p.budget === 'number' ? p.budget : 0), 0);
   return { totalBudget };
 }
@@ -472,12 +471,8 @@ async function getTotalBudget() {
 // 6. Generic project finder for arbitrary queries
 // ------------------------------------------------------------------
 async function findProjects({ filter = {}, sort = {}, limit = 10 }) {
-  // User-supplied filter and sort should correspond to Prisma where/orderBy
-  const projects = await prisma.project.findMany({
-    where: filter,
-    orderBy: sort,
-    take: limit
-  });
+  // User-supplied filter and sort should correspond to Supabase where/orderBy
+  const projects = await supabase.from('projects').select('*').where(filter).orderBy(sort).limit(limit);
   return { projects };
 }
 
@@ -485,7 +480,7 @@ async function findProjects({ filter = {}, sort = {}, limit = 10 }) {
 // 7. Generic project aggregator for grouping/counting
 // ------------------------------------------------------------------
 async function aggregateProjects({ groupBy, metrics = ['count'], filter = {}, sort = {}, limit }) {
-  // Build groupBy arguments for Prisma
+  // Build groupBy arguments for Supabase
   const groupArgs = { where: filter, by: [groupBy] };
   if (metrics.includes('count')) groupArgs._count = { _all: true };
   if (metrics.includes('avgBudget')) groupArgs._avg = { budget: true };
@@ -496,7 +491,7 @@ async function aggregateProjects({ groupBy, metrics = ['count'], filter = {}, so
     if (metrics.includes('avgBudget') && sort.avgBudget) groupArgs.orderBy._avg = { budget: sort.avgBudget };
   }
   if (limit) groupArgs.take = limit;
-  const result = await prisma.project.groupBy(groupArgs);
+  const result = await supabase.from('projects').groupBy(groupArgs);
   return { result };
 }
 
