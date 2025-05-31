@@ -1,0 +1,287 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+1 Reusable “tools” (tools.js)
+js
+Copy
+Edit
+/* tools.js ---------------------------------------------------------*/
+import { Tool }           from 'crewai';
+import { createClient }   from '@supabase/supabase-js';
+import OpenAI             from 'openai';
+
+const supa  = createClient(process.env.SUPABASE_URL,
+                           process.env.SUPABASE_ANON);
+const openai = new OpenAI({apiKey:process.env.OPENAI_API_KEY});
+/* -------- simple SQL helpers ------------------------------------ */
+export const getStaff = new Tool({
+  name:'getStaff',
+  description:'Return list of staff or one staff by id',
+  parameters:{ type:'object',
+    properties:{ id:{type:'string',nullable:true} }, required:[] },
+  func: async ({id})=>{
+    const {data, error}= await supa
+      .from('staff')
+      .select('*')
+      .eq('id', id || undefined);
+    if(error) throw error;
+    return data;
+  }
+});
+
+export const getProjects = new Tool({
+  name:'getProjects',
+  description:'Return list of projects or one project by id',
+  parameters:{ type:'object',
+    properties:{ id:{type:'string',nullable:true} }, required:[] },
+  func: async ({id})=>{
+    const {data,error}= await supa
+      .from('projects')
+      .select('*')
+      .eq('id', id || undefined);
+    if(error) throw error;
+    return data;
+  }
+});
+
+export const getAssignments = new Tool({
+  name:'getAssignments',
+  description:'Return assignment rows with optional filters',
+  parameters:{ type:'object',
+    properties:{
+      staffId   :{type:'string',nullable:true},
+      projectId :{type:'string',nullable:true},
+      from      :{type:'string',format:'date',nullable:true},
+      to        :{type:'string',format:'date',nullable:true}
+    },
+    required:[]
+  },
+  func: async ({staffId,projectId,from,to})=>{
+    let q = supa.from('assignments').select('*');
+    if(staffId)   q=q.eq('staff_id',staffId);
+    if(projectId) q=q.eq('project_id',projectId);
+    if(from)      q=q.gte('date',from);
+    if(to)        q=q.lte('date',to);
+    const {data,error}=await q;
+    if(error) throw error;
+    return data;
+  }
+});
+
+/* -------- vector-search helper ---------------------------------- */
+export const searchVectors = new Tool({
+  name:'searchVectors',
+  description:'Semantic search over staff, projects and assignments',
+  parameters:{ type:'object',
+    properties:{ query:{type:'string'}, topK:{type:'integer',default:12} },
+    required:['query']
+  },
+  func: async ({query,topK})=>{
+    const emb = (await openai.embeddings.create({
+      model:'text-embedding-3-small', input:query
+    })).data[0].embedding;
+
+    const {data,error} = await supa.rpc('match_vectors',   /* pgvector ivfflat func */
+      { query_embedding: emb, match_count: topK });
+    if(error) throw error;
+    return data;            // each row = {doc_type, doc_id, content, score}
+  }
+});
+
+/* -------- maths helper (for forecasts etc.) --------------------- */
+export const pythonMath = new Tool({
+  name:'pythonMath',
+  description:'Run a python expr and return the result. Use ONLY for arithmetic.',
+  parameters:{ type:'object',
+    properties:{ code:{type:'string'} }, required:['code'] },
+  func: async ({code})=>{
+    // very tiny, safe “sandbox”
+    const { spawnSync } = await import('node:child_process');
+    const r = spawnSync('python',['-c',`print(${code})`]);
+    return r.stdout.toString().trim();
+  }
+});
+
+/* -------- write helpers ----------------------------------------- */
+export const createAssignments = new Tool({
+  name:'createAssignments',
+  description:'Insert many assignment rows at once',
+  parameters:{ type:'object',
+    properties:{ rows:{type:'array',items:{
+      type:'object',
+      properties:{
+        staffId:{type:'string'},
+        projectId:{type:'string'},
+        date:{type:'string',format:'date'},
+        hours:{type:'integer'}
+      },
+      required:['staffId','projectId','date','hours']
+    }}},
+    required:['rows']
+  },
+  func: async ({rows})=>{
+    const {data,error} = await supa.from('assignments').insert(rows).select();
+    if(error) throw error;
+    return data;
+  }
+});
+match_vectors is a one-liner Postgres function created once:
+
+sql
+Copy
+Edit
+create or replace function match_vectors(
+  query_embedding vector(1536),
+  match_count int default 10)
+returns table(doc_type text, doc_id uuid, content text, score float)
+language plpgsql as $$
+begin
+  return query
+  select doc_type, doc_id, content,
+         1 - (embedding <=> query_embedding) as score
+  from vectors
+  order by embedding <=> query_embedding
+  limit match_count;
+end
+$$;
+2 Agents.yaml (v-2)
+yaml
+Copy
+Edit
+# agents.yaml  ----------------------------------------------------
+ChatAnalyst:              # answers “Ask” questions
+  role:  "Assistant Analyst"
+  goal:  "Answer any question about staff, projects and hours."
+  backstory: |
+    You have read-only access to structured SQL helpers and a semantic search
+    tool backed by Supabase pgvector.
+  tools:  [ getStaff, getProjects, getAssignments, searchVectors, pythonMath ]
+  llm:
+    provider: openai
+    model: gpt-4o-mini  # cheap, good reasoning
+    temperature: 0.2
+
+AnswerVerifier:           # double-checks the analyst
+  role:  "Quality Checker"
+  goal:  "Detect maths / logic errors and fix them before the user sees them."
+  backstory: |
+    You receive the analyst draft plus the raw JSON the tools returned.
+    If numbers are wrong, re-compute with pythonMath and output a corrected
+    answer; otherwise echo the original.
+  tools:  [ pythonMath ]
+  llm:
+    provider: openai
+    model: gpt-3.5-turbo
+    temperature: 0
+
+Scheduler:
+  role:  "Fast Scheduler"
+  goal:  "Create or delete assignments on command."
+  backstory: |
+    You parse natural-language booking commands («Book Zara 5 h tomorrow»),
+    fetch IDs with searchVectors if necessary, and write rows via
+    createAssignments.
+  tools:  [ searchVectors, getStaff, getProjects,
+            createAssignments, deleteRange ]
+  llm:
+    provider: openai
+    model: gpt-4o-mini
+    temperature: 0.3
+
+AutoPlanner:
+  role:  "Autonomous Planner"
+  goal:  "Allocate whole teams until project budget is exhausted."
+  backstory: |
+    You iteratively query availability, costs and budget left, then emit
+    createAssignments batches day-by-day until no budget remains.
+  tools:  [ getAssignments, getStaff, getProjects,
+            pythonMath, createAssignments ]
+  llm:
+    provider: openai
+    model: gpt-4o
+    temperature: 0.4
+
+EmailAgent:
+  role:  "Polite Notifier"
+  goal:  "Send reminder e-mails to idle staff every Friday 14:00 UTC."
+  backstory: |
+    Triggered by a CRON task; if getAssignments returns zero rows
+    for next week, send a templated email via EmailTool.
+  tools:  [ getAssignments, getStaff, EmailTool ]
+  llm:
+    provider: openai
+    model: gpt-3.5-turbo
+    temperature: 0.2
+
+ReportGenerator:
+  role:  "PDF Reporter"
+  goal:  "Summarise hours, budgets and graphs, then output a PDF link."
+  backstory: |
+    Uses pythonMath for sums and a small Python script (via PythonTool)
+    to create matplotlib charts and pdfKit for final PDF.
+  tools:  [ getAssignments, getProjects, pythonMath, PythonTool ]
+  llm:
+    provider: openai
+    model: gpt-4o
+    temperature: 0.3
+(YAML supports tools: lists since CrewAI 0.3. If you prefer separate
+Tools.yaml you can reference them by name.)
+
+3 Tasks.yaml
+yaml
+Copy
+Edit
+# tasks.yaml  ------------------------------------------------------
+AskFlow:
+  description: "Normal chat QA"
+  agents: [ ChatAnalyst, AnswerVerifier ]
+  when:    "mode == 'ask'"
+
+BookingFlow:
+  description: "Direct booking from chat"
+  agents: [ Scheduler ]
+  when:    "mode == 'command' && intent == 'booking'"
+
+PlanningFlow:
+  description: "Multi-day automatic planning"
+  agents: [ AutoPlanner, AnswerVerifier ]
+  when:    "mode == 'command' && intent == 'plan'"
+
+WeeklyReminder:
+  description: "Friday idle email"
+  cron: "0 14 * * 5"          # UTC Friday 14:00
+  agents: [ EmailAgent ]
+
+ReportFlow:
+  description: "Generate PDF on demand"
+  agents: [ ReportGenerator ]
+  when:    "mode == 'command' && intent == 'report'"
+4 Server glue (new route)
+ts
+Copy
+Edit
+/* server.js -------------------------------------------------------*/
+import { Crew }        from 'crewai';
+import agents          from './Agents.yaml';
+import tasks           from './Tasks.yaml';
+import * as tools      from './tools.js';
+
+const crew = new Crew({ agents, tasks, tools,
+                        openai:{ apiKey:process.env.OPENAI_API_KEY } });
+
+app.post('/api/crew-chat', async (req,res)=>{
+  const {query, mode='ask'} = req.body;
+  const answer = await crew.run({ query, mode });
+  res.json(answer);               // {content:"…", data:{…}}
+});
+
+Requirement	Agent / Tool	Notes
+Chatbot answers any data question	ChatAnalyst + searchVectors	Combines exact SQL with RAG fallback
+QA of every answer	AnswerVerifier	Re-computes numbers with pythonMath
+Fuzzy name matching	handled inside searchVectors (vectors over names, departments, emails…)	
+Email reminders	WeeklyReminder task -> EmailAgent	Uses EmailTool (SMTP creds in .env)
+Bulk / single booking	Scheduler tool chain	Uses createAssignments immediately => UI subscribes to Supabase real-time channel so calendar updates live
+Autonomous planner	AutoPlanner	Loops availability + budget until exhausted
+Report PDF	ReportGenerator	Runs PythonTool (pdfkit, matplotlib) and returns a presigned Supabase Storage URL

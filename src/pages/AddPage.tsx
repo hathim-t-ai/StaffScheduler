@@ -28,6 +28,7 @@ import { TabPanel } from '../components/AddPageComponents';
 import { useAddPageManager } from '../hooks/useAddPageManager';
 import Sidebar from '../components/Sidebar';
 import AddIcon from '@mui/icons-material/Add';
+import DeleteIcon from '@mui/icons-material/Delete';
 import type { TableProps } from '../components/ui/table';
 
 /**
@@ -104,11 +105,26 @@ const AddPage: React.FC = () => {
   }, [tabValue]);
 
   // Prepare table columns with an Add Column button at the far right
-  const staffTableColumns: TableProps['columns'] = getStaffColumns().map(col => ({
-    title: col.headerName,
-    dataIndex: col.field,
-    key: col.field
-  }));
+  const staffTableColumns: TableProps['columns'] = getStaffColumns().map(col => {
+    const isCustom = staffCustomFields.includes(col.field);
+    return {
+      title: col.headerName,
+      dataIndex: col.field,
+      key: col.field,
+      renderHeader: isCustom
+        ? () => (
+            <Box display="flex" alignItems="center" justifyContent="space-between">
+              <span>{col.headerName}</span>
+              <Tooltip title={`Delete ${col.headerName} column`}>
+                <IconButton size="small" color="error" onClick={() => handleDeleteStaffColumn(col.field)}>
+                  <DeleteIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            </Box>
+          )
+        : undefined
+    };
+  });
   staffTableColumns.push({
     title: '',
     key: 'addColumn',
@@ -120,12 +136,27 @@ const AddPage: React.FC = () => {
       </Tooltip>
     )
   });
-  const projectTableColumns: TableProps['columns'] = getProjectColumns().map(col => ({
-    title: col.headerName,
-    dataIndex: col.field,
-    key: col.field,
-    renderCell: col.renderCell
-  }));
+  const projectTableColumns: TableProps['columns'] = getProjectColumns().map(col => {
+    const isCustom = projectCustomFields.includes(col.field);
+    return {
+      title: col.headerName,
+      dataIndex: col.field,
+      key: col.field,
+      renderCell: col.renderCell,
+      renderHeader: isCustom
+        ? () => (
+            <Box display="flex" alignItems="center" justifyContent="space-between">
+              <span>{col.headerName}</span>
+              <Tooltip title={`Delete ${col.headerName} column`}>
+                <IconButton size="small" color="error" onClick={() => handleDeleteProjectColumn(col.field)}>
+                  <DeleteIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            </Box>
+          )
+        : undefined
+    };
+  });
   projectTableColumns.push({
     title: '',
     key: 'addColumn',

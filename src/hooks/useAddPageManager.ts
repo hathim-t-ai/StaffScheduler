@@ -338,6 +338,7 @@ export const useAddPageManager = () => {
       { field: 'department', headerName: 'Department', width: 150 },
       { field: 'city', headerName: 'City', width: 120 },
       { field: 'country', headerName: 'Country', width: 120 },
+      { field: 'email', headerName: 'Email', width: 200 },
       {
         field: 'skills',
         headerName: 'Skills',

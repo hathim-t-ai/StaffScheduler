@@ -14,9 +14,12 @@ from collections import defaultdict
 import traceback
 from fastapi.staticfiles import StaticFiles
 from tools.report_tool import ReportTool, ReportArgs
+from dotenv import load_dotenv
 
 # Import our RAG tools
 from tools.tool_registry import tool_registry
+
+load_dotenv()
 
 # Stub orchestrator and agent logic for testing
 class _StubOrchestrator:
@@ -137,7 +140,8 @@ class OrchestrationInput(BaseModel):
     staffIds: Optional[List[str]] = None
     projectIds: Optional[List[str]] = None
     hours: Optional[int] = None
-    mode: Optional[str] = "ask"  # "ask" or "schedule"
+    mode: Optional[str] = "ask"  # "ask", "command", or "cron"
+    intent: Optional[str] = None  # e.g., 'booking', 'plan', 'report'
 
     class Config:
         extra = 'allow'
@@ -175,6 +179,7 @@ async def create_assignments(data: Dict):
         raise HTTPException(status_code=500, detail=f"Failed to create assignment: {str(e)}")
 
 @app.post("/orchestrate", response_model=Union[Dict[str, Any], str])
+@app.post("/api/orchestrate", response_model=Union[Dict[str, Any], str])
 async def orchestrate(payload: OrchestrationInput, background_tasks: BackgroundTasks, request: Request):
     try:
         # Determine a session id for conversational memory (falls back to single global session)
@@ -182,9 +187,49 @@ async def orchestrate(payload: OrchestrationInput, background_tasks: BackgroundT
 
         # Retrieve existing conversation history for this session (only for ask mode)
         conversation_history = ask_memory.get(session_id, [])
-
-        # Determine whether to use CrewAI or stub orchestrator
-        if os.getenv("USE_CREW") == "1":
+        
+        # Handle simple ask queries directly via backend based on latest user message
+        raw_payload = payload.dict(exclude_none=False)
+        messages_list = raw_payload.get('messages')
+        if payload.mode == "ask" and isinstance(messages_list, list) and messages_list:
+            user_query = messages_list[-1].get('content', '')
+            import re
+            from datetime import datetime
+            # Parse staff name from query
+            name_match = re.search(r"Is\s+(.+?)\s+on any project", user_query, re.IGNORECASE)
+            # Parse date from query
+            date_match = re.search(r"(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]+)", user_query, re.IGNORECASE)
+            if name_match and date_match:
+                staff_name = name_match.group(1).strip().title()
+                day = int(date_match.group(1))
+                month_str = date_match.group(2).capitalize()
+                try:
+                    # Convert month name to month number
+                    month = datetime.strptime(month_str, "%B").month
+                except ValueError:
+                    month = datetime.now().month
+                year = datetime.now().year
+                date_str = f"{year}-{month:02d}-{day:02d}"
+                # Fetch all staff
+                staff_list = await fetch_data_from_backend("staff")
+                staff = [s for s in staff_list if staff_name.lower() in s.get("name", "").lower()]
+                if not staff:
+                    return {"content": f"I couldn't find staff member '{staff_name}'.", "type": "text"}
+                staff_id = staff[0]["id"]
+                # Fetch all assignments
+                assignments = await fetch_data_from_backend("assignments")
+                user_assignments = [a for a in assignments if a.get("staffId") == staff_id and a.get("date") == date_str]
+                if not user_assignments:
+                    return {"content": f"No, {staff_name} is not assigned to any project on {date_str}.", "type": "text"}
+                project_ids = list({a["projectId"] for a in user_assignments})
+                # Fetch projects
+                projects = await fetch_data_from_backend("projects")
+                project_names = [p.get("name") for p in projects if p.get("id") in project_ids]
+                return {"content": f"Yes, {staff_name} is assigned to {', '.join(project_names)} on {date_str}.", "type": "text"}
+        
+        # Determine whether to use CrewAI or stub orchestrator (default to CrewAI)
+        use_crew = (payload.mode == "ask") or (os.getenv("USE_CREW", "1") == "1")
+        if use_crew:
             # Load CrewAI configs and run pipeline
             from crewai import Agent, Crew, Process, Task
 
@@ -199,31 +244,28 @@ async def orchestrate(payload: OrchestrationInput, background_tasks: BackgroundT
 
             inputs = payload.dict(exclude_none=True)
             
-            # Determine which agents and tasks to use based on mode
+            # Determine which agents to use based on mode and intent
             if payload.mode == "ask":
-                # Informational Q&A
-                chosen_agents = ["RetrievalAgent", "SummarizerAgent"]
-                chosen_tasks = ["retrieve_data", "summarize_data"]
-            elif payload.mode == "agent":
-                # Special agent mode for command parsing
-                chosen_agents = ["CommandParser"]
-                chosen_tasks = ["parse_command"]
-                
-                # If the query starts with "schedule" or "book", we should use the full scheduling pipeline
-                if payload.query and any(keyword in payload.query.lower() for keyword in ["schedule", "book", "assign"]):
-                    chosen_agents = ["CommandParser", "AvailabilityFetcher", "ShiftMatcher", "Notifier", "ConflictResolver", "AuditLogger"]
-                    chosen_tasks = ["parse_command", "fetch_availability", "match_shifts", "send_notifications", "resolve_conflicts", "log_audit"]
+                chosen_agents = ["ChatAnalyst", "AnswerVerifier"]
+            elif payload.mode == "command":
+                # Map intent to specific pipelines
+                if payload.intent == "booking":
+                    chosen_agents = ["Scheduler"]
+                elif payload.intent == "plan":
+                    chosen_agents = ["AutoPlanner", "AnswerVerifier"]
+                elif payload.intent == "report":
+                    chosen_agents = ["ReportGenerator"]
+                else:
+                    chosen_agents = ["Scheduler"]
+            elif payload.mode == "cron":
+                # Scheduled cron flows
+                chosen_agents = ["EmailAgent"]
             else:
-                # Default scheduling pipeline
-                chosen_agents = ["CommandParser", "AvailabilityFetcher", "ShiftMatcher", "Notifier", "ConflictResolver", "AuditLogger"]
-                chosen_tasks = ["parse_command", "fetch_availability", "match_shifts", "send_notifications", "resolve_conflicts", "log_audit"]
-            
-            # Filter agent and task configs
+                # Fallback to QA
+                chosen_agents = ["ChatAnalyst", "AnswerVerifier"]
+
+            # Filter agent configs for chosen agents
             filtered_agent_configs = {k: v for k, v in agent_configs.items() if k in chosen_agents}
-            filtered_task_configs = {k: v for k, v in task_configs.items() if k in chosen_tasks}
-            
-            # Debugging for task configs
-            print(f"Task configs: {json.dumps(filtered_task_configs)}")
             
             try:
                 # Instantiate CrewAI objects with proper config dictionaries
@@ -262,32 +304,14 @@ async def orchestrate(payload: OrchestrationInput, background_tasks: BackgroundT
                             )
                             agents_list.append(agent_instance)
     
-                tasks_list = []
-                for task_name, task_config in filtered_task_configs.items():
-                    # Make sure task_config is a dictionary and has required fields
-                    if isinstance(task_config, dict):
-                        agent_name = task_config.get("agent", "")
-                        description = task_config.get("description", task_name)
-                        
-                        # Find the corresponding agent
-                        assigned_agent = next((agent for agent in agents_list if agent.role == agent_name), agents_list[0] if agents_list else None)
-                        
-                        if assigned_agent:
-                            try:
-                                task_instance = Task(
-                                    description=description,
-                                    agent=assigned_agent,
-                                    expected_output=task_config.get("expected_output", "")
-                                )
-                                tasks_list.append(task_instance)
-                            except Exception as e:
-                                print(f"Error creating task {task_name}: {e}")
-                        else:
-                            print(f"No agent found for task {task_name}")
-    
-                # Use fallback stub orchestrator if no tasks or agents could be created
-                if not tasks_list or not agents_list:
-                    print("Failed to create CrewAI agents/tasks, falling back to stub orchestrator")
+                # Build tasks list: one Task per agent for sequential execution
+                tasks_list = [
+                    Task(description=f"Run agent {agent.role}", agent=agent)
+                    for agent in agents_list
+                ]
+                # Fallback stub orchestrator if no agents configured
+                if not agents_list:
+                    print("No agents configured, falling back to stub orchestrator")
                     result = await orchestrator.run({"date": payload.date, "query": payload.query})
                     validate_pipeline_output(result)
                     return result
@@ -304,8 +328,8 @@ async def orchestrate(payload: OrchestrationInput, background_tasks: BackgroundT
                     verbose=True
                 )
                 
-                # Add some additional context
-                if payload.mode == "schedule" and payload.staffIds and payload.projectIds:
+                # Add some additional context for command flows with explicit IDs
+                if payload.mode == "command" and payload.staffIds and payload.projectIds:
                     # Fetch staff and project details to enrich the context
                     staff_data = await fetch_data_from_backend("staff")
                     project_data = await fetch_data_from_backend("projects")
@@ -355,8 +379,8 @@ async def orchestrate(payload: OrchestrationInput, background_tasks: BackgroundT
                         result = {"response": result}
                         print(f"Wrapped string result in dict: {result}")
             
-                # For scheduling tasks, create assignments in background
-                if payload.mode in ["schedule", "agent"] and isinstance(result, dict) and "resolvedMatches" in result:
+                # For scheduling tasks, create assignments in background for command flows
+                if payload.mode == "command" and isinstance(result, dict) and "resolvedMatches" in result:
                     background_tasks.add_task(process_assignments, result, payload)
                     
                 # Save conversation turn into memory for this session
@@ -402,6 +426,30 @@ async def orchestrate(payload: OrchestrationInput, background_tasks: BackgroundT
         print(f"Orchestration error: {e}")
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/chat", response_model=Union[Dict[str, Any], str])
+async def chat_endpoint(payload: OrchestrationInput, background_tasks: BackgroundTasks, request: Request):
+    """
+    Chat endpoint alias for conversational 'ask' flows.
+    """
+    payload.mode = "ask"
+    return await orchestrate(payload, background_tasks, request)
+
+@app.post("/api/ask", response_model=Union[Dict[str, Any], str])
+async def ask_alias_endpoint(payload: OrchestrationInput, background_tasks: BackgroundTasks, request: Request):
+    """
+    Alias endpoint for conversational 'ask' flows.
+    """
+    payload.mode = "ask"
+    return await orchestrate(payload, background_tasks, request)
+
+@app.post("/api/cron/weekly_reminder", response_model=Union[Dict[str, Any], str])
+async def weekly_reminder_endpoint(background_tasks: BackgroundTasks, request: Request):
+    """
+    HTTP endpoint to trigger WeeklyReminder flow via cron.
+    """
+    payload = OrchestrationInput(mode="cron")
+    return await orchestrate(payload, background_tasks, request)
 
 async def process_assignments(result, payload):
     """Process the scheduling results and create assignments in the database"""
@@ -549,5 +597,13 @@ async def generate_report_endpoint(req: GenerateReportRequest):
     result = tool._run(req.start, req.end, req.fmt)
     return result
 
+@app.post('/api/report')
+async def report_alias_endpoint(req: GenerateReportRequest):
+    """
+    Alias endpoint for report generation.
+    """
+    return await generate_report_endpoint(req)
+
 if __name__ == "__main__":
-    uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True) 
+    uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)
+

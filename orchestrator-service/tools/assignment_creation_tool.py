@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 
 
 class AssignmentCreationTool(BaseTool):
-    name: str = "Assignment Creation Tool"
+    name: str = "createAssignments"
     description: str = (
         "Create new staff assignments in the database. "
         "This tool can create single or multiple assignments for staff members on projects."

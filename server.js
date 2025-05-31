@@ -16,11 +16,12 @@ if (!process.env.SUPABASE_URL || (!process.env.SUPABASE_KEY && !process.env.SUPA
 const express = require('express');
 const cors    = require('cors');
 const OpenAI  = require('openai');
-// Stub axios to avoid ESM parse errors in Jest
-const axios = {};
+// Import axios for proxying requests
+const axios = require('axios');
 const path    = require('path');
 // Supabase client
 const supabase = require('./supabaseClient');
+const useCrew = process.env.USE_CREW === '1';
 
 const {
   getStaffAssignments,
@@ -39,6 +40,18 @@ const {
   findProjects,
   aggregateProjects
 } = require('./chatFunctions');
+
+// Default grade rates mapping (AED per hour), can override via GRADE_RATES_JSON env var
+const DEFAULT_GRADE_RATES = {
+  Associate: 100,
+  "Senior Associate": 150,
+  Manager: 200,
+  Director: 300,
+  Partner: 400
+};
+const gradeRates = process.env.GRADE_RATES_JSON
+  ? JSON.parse(process.env.GRADE_RATES_JSON)
+  : DEFAULT_GRADE_RATES;
 
 /* ---------- basic app ---------- */
 const app = express();
@@ -62,6 +75,45 @@ if (process.env.NODE_ENV === 'test') {
 
 const openai    = new OpenAI({ apiKey: process.env.OPENAI_API_KEY, dangerouslyAllowBrowser: true });
 const chatModel = process.env.OPENAI_CHAT_MODEL || 'gpt-4o';
+
+// Real-time embedding on data change
+const { encode, decode } = require('gpt-3-encoder');
+const { v4: uuidv4 } = require('uuid');
+const MAX_TOKENS = 750;
+
+function chunkTextByTokens(text, maxTokens) {
+  const tokens = encode(text);
+  const chunks = [];
+  for (let i = 0; i < tokens.length; i += maxTokens) {
+    const slice = tokens.slice(i, i + maxTokens);
+    chunks.push(decode(slice));
+  }
+  return chunks;
+}
+
+async function embedAndUpsert(table, row) {
+  try {
+    const text = Object.entries(row).map(([k, v]) => `${k}: ${v}`).join(' \n');
+    const chunks = chunkTextByTokens(text, MAX_TOKENS);
+    const response = await openai.embeddings.create({ model: 'text-embedding-3-small', input: chunks });
+    const embedData = response.data;
+    const records = embedData.map(item => ({ id: uuidv4(), doc_type: table, doc_id: row.id, embedding: item.embedding }));
+    const { error } = await supabase.from('vectors').upsert(records);
+    if (error) console.error('Realtime upsert error', table, row.id, error);
+    else console.log(`Realtime embedded ${records.length} chunks for ${table} ID ${row.id}`);
+  } catch (e) {
+    console.error('Realtime embedding failed', table, row.id, e);
+  }
+}
+
+// Subscribe to realtime changes for vectors embedding
+['staff', 'projects', 'assignments'].forEach(table => {
+  supabase
+    .channel(`embeddings_${table}`)
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table }, payload => embedAndUpsert(table, payload.new))
+    .on('postgres_changes', { event: 'UPDATE', schema: 'public', table }, payload => embedAndUpsert(table, payload.new))
+    .subscribe();
+});
 
 /* ---------- OpenAI function-calling ---------- */
 const functionMapping = {
@@ -185,16 +237,29 @@ const serviceRoleHeaders = {
 app.get('/api/staff', async (_, res) => {
   const { data, error } = await supabase
     .from('staff')
-    .select('*', serviceRoleHeaders);
+    .select('*');
 
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
 });
 
 app.post('/api/staff', async (req, res) => {
+  // Extract known fields and bundle any custom fields into metadata
+  const { name, grade, department, role, city, country, skills, email, ...metadata } = req.body;
+  const insertRow = {
+    name,
+    grade,
+    department,
+    role,
+    city,
+    country,
+    skills: Array.isArray(skills) ? skills.join(',') : skills,
+    email,
+    metadata
+  };
   const { data, error } = await supabase
     .from('staff')
-    .insert(req.body, serviceRoleHeaders)
+    .insert(insertRow)
     .select('*');
 
   if (error) return res.status(500).json({ error: error.message });
@@ -202,7 +267,24 @@ app.post('/api/staff', async (req, res) => {
 });
 
 app.put('/api/staff/:id', async (req, res) => {
-  const { data, error } = await supabase.from('staff').update(req.body).eq('id', req.params.id).select('*');
+  // Extract known fields and bundle any custom fields into metadata
+  const { name, grade, department, role, city, country, skills, email, ...metadata } = req.body;
+  const updateRow = {
+    name,
+    grade,
+    department,
+    role,
+    city,
+    country,
+    skills: Array.isArray(skills) ? skills.join(',') : skills,
+    email,
+    metadata
+  };
+  const { data, error } = await supabase
+    .from('staff')
+    .update(updateRow)
+    .eq('id', req.params.id)
+    .select('*');
   if (error) return res.status(500).json({ error: error.message });
   res.json(data[0]);
 });
@@ -365,13 +447,30 @@ app.post('/api/assignments/bulk', async (req, res) => {
 
 app.delete('/api/assignments/range', async (req, res) => {
   const { from, to, projectId, staffIds } = req.body;
-  let builder = supabase.from('assignments').delete();
-  builder = builder.gte('date', from.toISOString()).lte('date', to.toISOString());
-  if (projectId) builder = builder.eq('project_id', projectId);
-  if (Array.isArray(staffIds) && staffIds.length) builder = builder.in('staff_id', staffIds);
-  const { data, error } = await builder;
+  // Delete assignments and return deleted rows for count
+  let query = supabase
+    .from('assignments')
+    .delete()
+    .select('*')
+    .gte('date', from)
+    .lte('date', to);
+  if (projectId) query = query.eq('project_id', projectId);
+  if (Array.isArray(staffIds) && staffIds.length) query = query.in('staff_id', staffIds);
+  const { data, error } = await query;
   if (error) return res.status(500).json({ error: error.message });
-  res.json({ success: true, deleted: data.length });
+  // data is an array of deleted rows
+  res.json({ success: true, deleted: Array.isArray(data) ? data.length : 0 });
+});
+
+// Delete individual assignment
+app.delete('/api/assignments/:id', async (req, res) => {
+  const { id } = req.params;
+  const { data, error } = await supabase
+    .from('assignments')
+    .delete()
+    .eq('id', id);
+  if (error) return res.status(500).json({ error: error.message });
+  res.status(204).end();
 });
 
 /* ============================================================== */
@@ -463,219 +562,367 @@ app.get('/api/analytics/range', async (req, res) => {
 /* ============================================================== */
 /*  ORCHESTRATE  – booking / bulk / removal / replacement          */
 /* ============================================================== */
-app.post('/api/orchestrate', async (req,res)=>{
-  const { query, date, mode } = req.body;
-  const lower = (query||'').toLowerCase().trim();
-
-  /* ----- replacement branch ----- */
-  const swap = parseReplacement(lower);
-  if (swap){
-    try{
-      const staff = await prisma.staff.findFirst({ where:{ name:{ contains: swap.staffName } } });
-      const fromP = await prisma.project.findFirst({ where:{ name:{ contains: swap.fromProj } } });
-      const toP   = await prisma.project.findFirst({ where:{ name:{ contains: swap.toProj   } } });
-      if(!staff||!fromP||!toP){
-        return res.json({success:false,error:'not_found',message:'Staff or project not found.'});
-      }
-      await prisma.$transaction(async tx=>{
-        await tx.assignment.deleteMany({
-          where:{staffId:staff.id,projectId:fromP.id,date:{gte:swap.date,lte:swap.date}}
-        });
-        await tx.assignment.create({
-          data:{staffId:staff.id,projectId:toP.id,date:swap.date,hours:swap.hours}
-        });
-      });
-      return res.json({success:true,
-        message:`Replaced ${swap.hours}h on ${fromP.name} with ${toP.name} for ${staff.name} on ${swap.date.toISOString().split('T')[0]}.`
-      });
-    }catch(e){
-      console.error('swap error',e);
-      return res.status(500).json({success:false,error:'swap_failed',message:e.message});
-    }
-  }
-
-  /* ----- removal branch ----- */
-  const removalPattern = /\b(remove|delete|unassign|unschedule|cancel)\b/i;
-  if (removalPattern.test(lower)){
-    const projMatch  = lower.match(/project\s+([a-z0-9 ]+)/i);
-    const staffMatch = lower.match(/for\s+([a-z0-9 ]+?)\s+on\s+\d/i);
-    const projectName = projMatch ? projMatch[1].trim() : null;
-    const staffName   = staffMatch ? staffMatch[1].trim() : null;
-    const range       = parseDateRange(lower) || {};
-    const singleDate  = range.from || new Date(lower.match(/\d{1,2}/)[0]);
-
-    const staff = await prisma.staff.findFirst({ where:{ name:{ contains: staffName } } });
-    const proj  = await prisma.project.findFirst({ where:{ name:{ contains: projectName } } });
-    if(!staff||!proj) return res.json({success:false,error:'not_found',message:'Staff or project not found.'});
-
-    const result = await prisma.assignment.deleteMany({
-      where:{
-        staffId:staff.id, projectId:proj.id,
-        date:{gte:range.from||singleDate,lte:range.to||singleDate}
-      }
-    });
-    return res.json({success:true,message:`✅ Deleted ${result.count} assignment(s).`,count:result.count});
-  }
-
-  /* ----- booking parse ----- */
-  const cmd = parseBookingCommand(query||'');
-  if (cmd){
-
-    /* -- BULK branch (team / multi-staff / range) -- */
-    if (cmd.isBulk && (cmd.teamName || cmd.dateRange)){
-      try{
-/* ---------- staff set ---------- */
-        let staffList = [];
-
-        /**
-         * 1.  Deduce a "team" token, e.g. "analytics" in
-         *     "book the analytics team ..." or fall back to an explicit
-         *     comma/and-separated staffName list.
-         */
-        let teamCandidate = cmd.teamName                                         // ← already parsed
-            || (query || '').match(/(?:members?\s+of|members?\s+from|the)?\s*([a-z0-9 ]+?)\s+team\b/i)?.[1]  // ← Regex capture
-            || null;
-
-        if (teamCandidate) {
-          /* normalise & drop filler words so "book the analytics" → "analytics" */
-          const stop = new Set(['book','all','the','entire','team','members','member',
-                                'please','kindly','can','you']);
-          const tokens = teamCandidate
-                          .toLowerCase()
-                          .split(/\s+/)
-                          .filter(t => t && !stop.has(t));
-
-          const allStaff = await prisma.staff.findMany();
-          staffList      = allStaff.filter(s => {
-            const dept = (s.department || '').toLowerCase();
-            return tokens.some(tok => dept.includes(tok));
-          });
-
-          if (!staffList.length) {
-            return res.json({
-              success : false,
-              error   : 'no_staff',
-              message : `No staff found in the ${tokens.join(' ')} team.`
-            });
-          }
-
-        } else if (cmd.staffName) {
-          /* explicit list: "Aisha and Fatima ..." */
-          const names = cmd.staffName
-                          .split(/\s*(?:and|,|&)\s*/i)
-                          .map(n => n.trim())
-                          .filter(Boolean);
-
-          // fetch all staff and perform case-insensitive lookup in JavaScript
-          const allStaff = await prisma.staff.findMany();
-          for (const n of names) {
-            const s = allStaff.find(st => st.name.toLowerCase().includes(n.toLowerCase()));
-            if (!s) {
-              return res.json({
-                success : false,
-                error   : 'staff_not_found',
-                message : `Staff '${n}' not found`
-              });
-            }
-            staffList.push(s);
-          }
-
-        } else {
-          return res.json({
-            success : false,
-            error   : 'bulk_parse_error',
-            message : 'Could not determine target staff or team.'
-          });
+app.post('/api/orchestrate', async (req, res) => {
+  // Agent-mode booking always goes through the CrewAI orchestrator
+  if (req.body?.mode === 'command' && req.body?.intent === 'booking') {
+    try {
+      const orchestratorUrl = process.env.ORCHESTRATOR_URL || 'http://localhost:8000';
+      const { data } = await axios.post(`${orchestratorUrl}/orchestrate`, req.body);
+      return res.json(data);
+    } catch (err) {
+      console.error('Orchestrator proxy error for booking, falling back to local', err);
+      try {
+        // Fallback to local booking when orchestrator is unreachable
+        // First, attempt to parse and handle booking via NLP and directBooking
+        const queryText = req.body.query || req.body.originalQuery || req.body.text || '';
+        const cmd = parseBookingCommand(queryText);
+        if (cmd && !cmd.isBulk) {
+          const result = await directBooking({ staffName: cmd.staffName, projectBookings: cmd.projectBookings, date: cmd.date });
+          return result.success
+            ? res.json({ content: result.message, type: 'text', booking: result.assignments, isMultiProject: result.isMultiProject })
+            : res.status(400).json({ error: result.error, message: result.message });
         }
-
-
-        /* projects */
-        const projObjs=[];
-        for(const pb of cmd.projectBookings){
-          const p = await prisma.project.findFirst({ where:{ name:{ contains: pb.projectName } } });
-          if(!p) return res.json({success:false,error:'project_not_found',message:`Project '${pb.projectName}' not found`});
-          projObjs.push({...p,hours:pb.hours});
-        }
-
-        /* build rows with capacity check */
-        // Determine dates to book
-        const datesToBook = [];
-        if (cmd.dateRange) {
-          for (let d = new Date(cmd.dateRange.from); d <= cmd.dateRange.to; d.setUTCDate(d.getUTCDate() + 1)) {
-            datesToBook.push(new Date(d));
-          }
-        } else {
-          datesToBook.push(new Date(cmd.date));
-        }
-        // Fetch existing assignments for these staff and dates
-        const staffIds = staffList.map(s => s.id);
-        const startBook = new Date(Date.UTC(
-          datesToBook[0].getUTCFullYear(), datesToBook[0].getUTCMonth(), datesToBook[0].getUTCDate()
-        ));
-        const endDate = datesToBook[datesToBook.length - 1];
-        const endBook = new Date(Date.UTC(
-          endDate.getUTCFullYear(), endDate.getUTCMonth(), endDate.getUTCDate(), 23, 59, 59, 999
-        ));
-        const existing = await prisma.assignment.findMany({
-          where: { staffId: { in: staffIds }, date: { gte: startBook, lte: endBook } }
-        });
-        const totalIncoming = projObjs.reduce((sum, p) => sum + p.hours, 0);
-        const assignments = [];
-        const skipped = new Set();
-        for (const d of datesToBook) {
-          const dateStr = d.toISOString().split('T')[0];
-          for (const s of staffList) {
-            // Sum current hours for this staff on this date
-            const current = existing
-              .filter(a => a.staffId === s.id && a.date.toISOString().split('T')[0] === dateStr)
-              .reduce((sum, a) => sum + a.hours, 0);
-            if (current + totalIncoming <= 8) {
-              for (const p of projObjs) {
-                assignments.push({
-                  staffId: s.id,
-                  projectId: p.id,
-                  date: dateStr,
-                  hours: p.hours
-                });
-              }
-            } else {
-              skipped.add(s.name);
+        // Otherwise, fallback to schedule via provided staffIds/projectIds
+        const { staffIds, projectIds, date, hours } = req.body;
+        const assignmentsPayload = [];
+        if (Array.isArray(staffIds) && Array.isArray(projectIds) && date && hours != null) {
+          for (const staffId of staffIds) {
+            for (const projectId of projectIds) {
+              assignmentsPayload.push({ staffId, projectId, date, hours });
             }
           }
         }
-        const result = await createAssignmentsFromSchedule({ assignments });
-        let message = result.message;
-        if (skipped.size) {
-          message += `\n\n⚠️ Could not book for ${Array.from(skipped).join(', ')} since the project hours would exceed the 8-hour limit.`;
+        const result = await createAssignmentsFromSchedule({ assignments: assignmentsPayload });
+        if (result.success) {
+          return res.json({ content: result.message, type: 'text', booking: result.assignments, isMultiProject: result.assignments.length > 1 });
+        } else {
+          return res.status(500).json({ error: 'booking_failed', message: result.message });
         }
-        return res.json({ success: true, message, assignments: result.assignments });
-      }catch(e){
-        console.error('bulk booking',e);
-        return res.status(500).json({success:false,error:'bulk_booking_failed',message:e.message});
+      } catch (fbErr) {
+        console.error('Local booking fallback error', fbErr);
+        return res.status(500).json({ error: 'booking_error', message: fbErr.message });
       }
     }
-
-    /* -- FAST single / same-day booking -- */
-    try{
-      const r = await directBooking({staffName:cmd.staffName,projectBookings:cmd.projectBookings,date:cmd.date});
-      return r.success
-        ? res.json({success:true,message:r.message, assignments:r.assignments})
-        : res.json({success:false,error:r.error,message:r.message});
-    }catch(e){
-      console.error('direct booking',e);
-      return res.status(500).json({success:false,error:'booking_error',message:e.message});
+  }
+  // If CrewAI orchestration is enabled, proxy other orchestrate calls to the orchestrator service
+  if (useCrew) {
+    try {
+      const orchestratorUrl = process.env.ORCHESTRATOR_URL || 'http://localhost:8000';
+      const { data } = await axios.post(`${orchestratorUrl}/orchestrate`, req.body);
+      return res.json(data);
+    } catch (err) {
+      console.error('Orchestrator proxy error', err);
+      return res.status(500).json({ error: 'orchestrate_proxy_failed', message: err.message });
     }
   }
+  // Local orchestrator is disabled
+  return res.status(501).json({
+    error: 'local_orchestrate_disabled',
+    message: 'Local orchestrator disabled; set USE_CREW=1 to enable CrewAI orchestration.'
+  });
+});
 
-  /* ----- fallback to GPT conversational assistant ----- */
+/* ------------------------------------------------------------- */
+/*  ASK-VECTORS endpoint – purely factual retrieval via RAG     */
+/* ------------------------------------------------------------- */
+app.post('/api/ask-vectors', async (req, res) => {
+  const { query, k = 5 } = req.body;
+  if (!query) return res.status(400).json({ error: 'query_required' });
   try {
-    // Use OpenAI to handle general conversational queries with function-calling
-    const commonSystem = `You are a world-class data assistant with direct access to these data functions: getAllStaff, getAllProjects, findProjects, aggregateProjects, getTotalBudget, getProjectDetails, getTeamAvailability, getProductiveHours, getStaffProductiveHours. ALWAYS call the appropriate function to retrieve reliable, up-to-date data in JSON. For queries asking for partners with the most or least number of projects, use the aggregateProjects function with groupBy: 'partnerName', metrics: ['count'], sort by count descending (for most) or ascending (for least), and set limits appropriately. NEVER hallucinate or fabricate information. After calling the function(s), process the returned data and provide a concise, factual response. Prefix your reasoning steps with "Thinking:".`;
+    // 1. Embed the query
+    const embRes = await openai.embeddings.create({ model: 'text-embedding-3-small', input: query });
+    const queryEmbedding = embRes.data[0].embedding;
+    // 2. Match top K vectors
+    const { data: matches, error: matchError } = await supabase.rpc('match_vectors', { query_embedding: queryEmbedding, match_count: k });
+    if (matchError) throw matchError;
+    // 3. Fetch corresponding rows
+    const docs = await Promise.all(matches.map(async m => {
+      const { doc_type, doc_id, distance } = m;
+      const { data: row, error: rowError } = await supabase.from(doc_type).select('*').eq('id', doc_id).single();
+      return rowError
+        ? { doc_type, doc_id, distance, error: rowError.message }
+        : { doc_type, distance, data: row };
+    }));
+    return res.json({ query, matches: docs });
+  } catch (e) {
+    console.error('/api/ask-vectors failed', e);
+    return res.status(500).json({ error: e.message || 'ask_vectors_failed' });
+  }
+});
+
+/* ============================================================== */
+/*  ASK-STREAM endpoint – streaming chain-of-thought via SSE
+/* ============================================================== */
+app.post('/api/ask-stream', async (req, res) => {
+  const { messages } = req.body;
+  // Set SSE headers
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  // Build system prompt for streaming
+  const systemPromptStream = `You are a factual assistant with direct access to concrete data functions (getAllStaff, getAllProjects, findProjects, aggregateProjects, getTotalBudget, getProjectDetails, getTeamAvailability, getProductiveHours, getStaffProductiveHours). ALWAYS use the appropriate function to fetch data, never fabricate. Provide concise and direct answers without including internal reasoning.`;
+  const chatStream = [
+    { role: 'system', content: systemPromptStream },
+    ...messages
+  ];
+  try {
+    const completion = await openai.chat.completions.create({
+      model: chatModel,
+      messages: chatStream,
+      functions: functionDefinitions,
+      function_call: 'auto',
+      temperature: 0,
+      stream: true
+    });
+    for await (const part of completion) {
+      const delta = part.choices[0].delta;
+      if (delta.content) {
+        res.write(`data: ${JSON.stringify({ partial: delta.content })}\n\n`);
+      }
+    }
+    res.write('data: [DONE]\n\n');
+  } catch (e) {
+    console.error('/api/ask-stream error', e);
+    res.write(`event: error\ndata: ${JSON.stringify({ error: e.message })}\n\n`);
+  } finally {
+    res.end();
+  }
+});
+
+/* ============================================================== */
+/*  ASK endpoint – smart Q&A + deterministic shortcuts            */
+/* ============================================================== */
+app.post('/api/ask', async (req, res) => {
+  const { messages } = req.body;
+  const lastUser = [...messages].reverse().find(m => m.role === 'user')?.content || '';
+  const lower = lastUser.toLowerCase().trim();
+
+  // Greeting shortcut
+  if (/^\s*(hello|hi|hey)\b/.test(lower)) {
+    return res.json({ content: 'Hello! How can I assist you today?', type: 'text' });
+  }
+
+  // Staff count shortcut
+  if (/(how\s+many|number\s+of)\s+staff/.test(lower)) {
+    const staffList = await getAllStaff();
+    return res.json({ content: `There are ${staffList.length} staff members.`, type: 'text' });
+  }
+
+  // Projects count shortcut (excluding partner queries)
+  if (/(how\s+many|number\s+of)\s+projects/.test(lower) && !/partner/.test(lower)) {
+    const projectsList = await getAllProjects();
+    return res.json({ content: `There are ${projectsList.length} projects.`, type: 'text' });
+  }
+
+  // Assignment check shortcut: "Is X on any project on 26th May"
+  const assignMatch = /is\s+(.+?)\s+on any project on\s+(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]+)/i.exec(lastUser);
+  if (assignMatch) {
+    const staffName = assignMatch[1].trim();
+    const day = parseInt(assignMatch[2], 10);
+    const month = assignMatch[3];
+    const year = new Date().getFullYear();
+    const MONTH_NUMBERS = { january: '01', february: '02', march: '03', april: '04', may: '05', june: '06', july: '07', august: '08', september: '09', october: '10', november: '11', december: '12' };
+    const monthKey = month.toLowerCase();
+    const monthNum = MONTH_NUMBERS[monthKey] || String(new Date(`${month} 1, ${year}`).getMonth() + 1).padStart(2, '0');
+    const dayStr = String(day).padStart(2, '0');
+    const dateISO = `${year}-${monthNum}-${dayStr}`;
+    // Fetch assignments for this staff on that date
+    const result = await getStaffAssignments({ staffName, from: dateISO, to: dateISO });
+    if (result.error) {
+      // Suggest similar names if available
+      if (Array.isArray(result.availableStaff) && result.availableStaff.length) {
+        // Filter suggestions containing part of the query
+        const candidates = result.availableStaff.filter(s => s.toLowerCase().includes(staffName.substring(0, 3).toLowerCase()));
+        const suggestions = candidates.length ? candidates : result.availableStaff.slice(0, 5);
+        return res.json({ content: `I couldn't find staff member "${staffName}". Did you mean: ${suggestions.join(', ')}?`, type: 'text' });
+      }
+      return res.json({ content: `Error: ${result.error}`, type: 'text' });
+    }
+    if (!result.isScheduled) {
+      return res.json({ content: `No, ${result.staffName} is not assigned to any project on ${dateISO}.`, type: 'text' });
+    }
+    const projectNames = result.assignments.map(a => a.projectName).join(', ');
+    return res.json({ content: `Yes, ${result.staffName} is assigned to ${projectNames} on ${dateISO}.`, type: 'text' });
+  }
+
+  // Weekly staffed hours shortcut: "How many hrs is X staffed for the week starting from 26th May"
+  const weekMatch = /how\s+many\s+(?:h(?:ours|rs?)|hrs)\s+is\s+(.+?)\s+staffed\s+for\s+the\s+week\s+starting\s+from\s+(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]+)/i.exec(lastUser);
+  if (weekMatch) {
+    const staffName = weekMatch[1].trim();
+    const day = parseInt(weekMatch[2], 10);
+    const month = weekMatch[3];
+    const year = new Date().getFullYear();
+    // Map month to number
+    const MONTH_NUMBERS = { january: '01', february: '02', march: '03', april: '04', may: '05', june: '06', july: '07', august: '08', september: '09', october: '10', november: '11', december: '12' };
+    const monthKey = month.toLowerCase();
+    const monthNum = MONTH_NUMBERS[monthKey] || String(new Date(`${month} 1, ${year}`).getMonth() + 1).padStart(2, '0');
+    const dayStr = String(day).padStart(2, '0');
+    // Construct date range
+    const fromISO = `${year}-${monthNum}-${dayStr}`;
+    const startDate = new Date(`${year}-${monthNum}-${dayStr}`);
+    const endDateObj = new Date(startDate);
+    endDateObj.setDate(startDate.getDate() + 6);
+    const endY = endDateObj.getFullYear();
+    const endM = String(endDateObj.getMonth() + 1).padStart(2, '0');
+    const endD = String(endDateObj.getDate()).padStart(2, '0');
+    const toISO = `${endY}-${endM}-${endD}`;
+    // Fetch assignments and total hours
+    const result = await getStaffAssignments({ staffName, from: fromISO, to: toISO });
+    if (result.error) {
+      if (Array.isArray(result.availableStaff) && result.availableStaff.length) {
+        const candidates = result.availableStaff.filter(s => s.toLowerCase().includes(staffName.substring(0, 3).toLowerCase()));
+        const suggestions = candidates.length ? candidates : result.availableStaff.slice(0, 5);
+        return res.json({ content: `I couldn't find staff member "${staffName}". Did you mean: ${suggestions.join(', ')}?`, type: 'text' });
+      }
+      return res.json({ content: `Error: ${result.error}`, type: 'text' });
+    }
+    // Group by project
+    const projectSet = new Set(result.assignments.map(a => a.projectName));
+    const projectsList = Array.from(projectSet).filter(Boolean);
+    let message;
+    if (projectsList.length === 1) {
+      message = `${result.staffName} is staffed for ${result.totalHours} hours (all on project "${projectsList[0]}") during the week from ${fromISO} to ${toISO}.`;
+    } else {
+      message = `${result.staffName} is staffed for ${result.totalHours} hours during the week from ${fromISO} to ${toISO}, on projects: ${projectsList.join(', ')}.`;
+    }
+    return res.json({ content: message, type: 'text' });
+  }
+
+  // Breakdown per day shortcut: "breakdown of the projects per day for X"
+  const breakdownMatch = /breakdown of the projects per day for\s+(.+?)(?:\?|$)/i.exec(lastUser);
+  if (breakdownMatch) {
+    const staffName = breakdownMatch[1].trim();
+    // Look for 'week starting from' context in current and previous user messages
+    let weekContextMatch = null;
+    const prevUserMsgs = messages.filter(m => m.role === 'user').map(m => m.content);
+    for (let i = prevUserMsgs.length - 1; i >= 0; i--) {
+      const match = /week starting from\s+(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]+)/i.exec(prevUserMsgs[i]);
+      if (match) { weekContextMatch = match; break; }
+    }
+    let fromISO, toISO;
+    if (weekContextMatch) {
+      const day = parseInt(weekContextMatch[1], 10);
+      const month = weekContextMatch[2];
+      const year = new Date().getFullYear();
+      const MONTH_NUMBERS = { january: '01', february: '02', march: '03', april: '04', may: '05', june: '06', july: '07', august: '08', september: '09', october: '10', november: '11', december: '12' };
+      const monthKey = month.toLowerCase();
+      const monthNum = MONTH_NUMBERS[monthKey] || String(new Date(`${month} 1, ${year}`).getMonth() + 1).padStart(2, '0');
+      const dayStr = String(day).padStart(2, '0');
+      fromISO = `${year}-${monthNum}-${dayStr}`;
+      const startDate = new Date(`${fromISO}`);
+      const endDateObj = new Date(startDate);
+      endDateObj.setDate(startDate.getDate() + 6);
+      const endY = endDateObj.getFullYear();
+      const endM = String(endDateObj.getMonth() + 1).padStart(2, '0');
+      const endD = String(endDateObj.getDate()).padStart(2, '0');
+      toISO = `${endY}-${endM}-${endD}`;
+    } else {
+      // Default to last 7 days
+      const endDateObj = new Date();
+      const startDate = new Date(endDateObj);
+      startDate.setDate(endDateObj.getDate() - 6);
+      fromISO = startDate.toISOString().split('T')[0];
+      toISO = endDateObj.toISOString().split('T')[0];
+    }
+    // Fetch assignments for staff
+    const result = await getStaffAssignments({ staffName, from: fromISO, to: toISO });
+    if (result.error) {
+      return res.json({ content: `Error: ${result.error}`, type: 'text' });
+    }
+    // Organize assignments by date
+    const dateMap = {};
+    result.assignments.forEach(a => {
+      dateMap[a.date] = dateMap[a.date] || [];
+      dateMap[a.date].push(a);
+    });
+    // Build breakdown message
+    let message = `Here is the breakdown of hours for ${result.staffName} for the period from ${fromISO} to ${toISO}:\n`;
+    let cursorDate = new Date(fromISO);
+    const lastDate = new Date(`${toISO}`);
+    while (cursorDate <= lastDate) {
+      const dateStr = cursorDate.toISOString().split('T')[0];
+      message += `\n**${dateStr}**:`;
+      const dayAssignments = dateMap[dateStr] || [];
+      if (dayAssignments.length) {
+        dayAssignments.forEach(asg => {
+          message += `\n - Project "${asg.projectName}": ${asg.hours} hours`;
+        });
+      } else {
+        message += `\n - No assignments`;
+      }
+      cursorDate.setDate(cursorDate.getDate() + 1);
+    }
+    return res.json({ content: message, type: 'text' });
+  }
+
+  // Budget consumption shortcut: "How much budget consumed for project X"
+  if (/budget.*consumed/i.test(lower)) {
+    const projMatch = /project\s+([a-z0-9 ]+?)(?:\s|$|\?)/i.exec(lastUser);
+    if (projMatch) {
+      const projectName = projMatch[1].trim();
+      const pd = await getProjectDetails({ projectName });
+      if (!pd) {
+        return res.json({ content: `Could not find project "${projectName}".`, type: 'text' });
+      }
+      // Parse optional date for label and compute toISO
+      const dateMatch = /as of\s+(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]+)/i.exec(lastUser);
+      let dateLabel = 'today';
+      let consumed = null;
+      let toISO = null;
+      if (dateMatch) {
+        const d = parseInt(dateMatch[1], 10);
+        const m = dateMatch[2];
+        const year = new Date().getFullYear();
+        dateLabel = `${m.charAt(0).toUpperCase() + m.slice(1)} ${d}`;
+        const MONTH_NUMBERS = { january: '01', february: '02', march: '03', april: '04', may: '05', june: '06', july: '07', august: '08', september: '09', october: '10', november: '11', december: '12' };
+        const monthKey = m.toLowerCase();
+        const monthNum = MONTH_NUMBERS[monthKey] || String(new Date(`${m} 1, ${year}`).getMonth() + 1).padStart(2, '0');
+        const dayStr = String(d).padStart(2, '0');
+        toISO = `${year}-${monthNum}-${dayStr}`;
+        // Fetch assignments up to specified date including grade
+        const { data: assignments, error: asgError } = await supabase
+          .from('assignments')
+          .select('hours, staff ( metadata, grade )')
+          .eq('project_id', pd.projectId)
+          .lte('date', toISO);
+        if (asgError) console.error('Error fetching assignments for budget:', asgError);
+        // Calculate consumed budget with grade fallback
+        consumed = assignments.reduce((sum, a) => {
+          let rate = 0;
+          if (a.staff && a.staff.metadata && a.staff.metadata.rate) {
+            rate = parseFloat(a.staff.metadata.rate) || 0;
+          } else if (a.staff && a.staff.grade) {
+            rate = gradeRates[a.staff.grade] || 0;
+          }
+          return sum + a.hours * rate;
+        }, 0);
+      } else {
+        consumed = pd.consumedBudget != null ? pd.consumedBudget : 0;
+      }
+      const totalBudget = pd.budget;
+      return res.json({
+        content: `As of ${dateLabel}, project "${pd.projectName}" has consumed AED ${consumed} of its AED ${totalBudget} budget.`,
+        type: 'text'
+      });
+    }
+  }
+
+  // Booking via parseBookingCommand
+  const cmd = parseBookingCommand(lower);
+  if (cmd && !cmd.isBulk) {
+    const result = await directBooking({ staffName: cmd.staffName, projectBookings: cmd.projectBookings, date: cmd.date });
+    return result.success
+      ? res.json({ content: result.message, type: 'text', booking: result.assignments, isMultiProject: result.isMultiProject })
+      : res.json({ content: result.message, type: 'text', error: result.error });
+  }
+
+  // Default: GPT function-calling with Supabase-backed functions
+  try {
+    const systemPrompt = `You are a factual assistant with direct access to concrete data functions (getAllStaff, getAllProjects, findProjects, aggregateProjects, getTotalBudget, getProjectDetails, getTeamAvailability, getProductiveHours, getStaffProductiveHours). ALWAYS use the appropriate function to fetch data, never fabricate. Provide concise and direct answers without including internal reasoning.`;
     const chat = [
-      { role: 'system', content: commonSystem },
-      { role: 'user', content: query }
+      { role: 'system', content: systemPrompt },
+      ...messages
     ];
-    // First GPT call
     const initial = await openai.chat.completions.create({
       model: chatModel,
       messages: chat,
@@ -684,10 +931,16 @@ app.post('/api/orchestrate', async (req,res)=>{
       temperature: 0
     });
     let reply = initial.choices[0].message;
-    // If a function call was suggested, execute it and call GPT again
     if (reply.function_call) {
+      let args;
+      try {
+        args = typeof reply.function_call.arguments === 'string'
+          ? JSON.parse(reply.function_call.arguments)
+          : reply.function_call.arguments;
+      } catch {
+        args = {};
+      }
       const fnName = reply.function_call.name;
-      const args = JSON.parse(reply.function_call.arguments || '{}');
       const fnRes = functionMapping[fnName] ? await functionMapping[fnName](args) : {};
       const follow = await openai.chat.completions.create({
         model: chatModel,
@@ -701,156 +954,9 @@ app.post('/api/orchestrate', async (req,res)=>{
       reply = follow.choices[0].message;
     }
     return res.json({ content: reply.content, type: 'text' });
-  } catch (err) {
-    console.error('Orchestrator GPT fallback failed', err);
-    return res.status(500).json({ error: 'orchestrator_gpt_failed', message: err.message });
-  }
-});
-
-/* ============================================================== */
-/*  ASK endpoint – smart Q&A + deterministic shortcuts            */
-/* ============================================================== */
-app.post('/api/ask', async (req, res) => {
-  const { messages } = req.body;
-  // Extract last user message for shortcuts
-  const lastUser = [...messages].reverse().find(m => m.role === 'user')?.content || '';
-  const lower = lastUser.toLowerCase().trim();
-
-  // Deterministic shortcuts on lastUser
-  if (/(how\s+many|number\s+of)\s+staff/.test(lower)) {
-    const count = await prisma.staff.count();
-    return res.json({ content: `There are ${count} staff members.`, type: 'text' });
-  }
-  if (/(how\s+many|number\s+of)\s+projects/.test(lower) && !/partner/.test(lower)) {
-    const count = await prisma.project.count();
-    return res.json({ content: `There are ${count} projects.`, type: 'text' });
-  }
-
-  // Quick budget queries: top N highest or lowest budgets
-  const budgetRegex = /\btop\s+(\d+)\s+projects?\s+(?:with\s+the\s+)?(highest|lowest)\s+budgets?\b/;
-  const budgetMatch = lower.match(budgetRegex);
-  if (budgetMatch) {
-    const n = parseInt(budgetMatch[1], 10);
-    const order = budgetMatch[2]; // 'highest' or 'lowest'
-    const projects = await prisma.project.findMany();
-    const filtered = projects.filter(p => typeof p.budget === 'number');
-    filtered.sort((a, b) => order === 'highest' ? b.budget - a.budget : a.budget - b.budget);
-    const topN = filtered.slice(0, n);
-    let content = `The top ${n} projects ${order === 'highest' ? 'with the highest budgets' : 'with the lowest budgets'}, ranked ${order === 'highest' ? 'from highest' : 'from lowest'}, are:`;
-    topN.forEach((p, i) => {
-      const amount = p.budget.toLocaleString();
-      content += `\n${i+1}. **${p.name}** - Budget: AED ${amount}`;
-    });
-    return res.json({ content, type: 'text' });
-  }
-
-  // Specific partner project count inquiry (e.g., "What about Sarah Al-Bader? ...")
-  const aboutMatch = lower.match(/what about\s+(.+?)\s*\?/i);
-  if (aboutMatch) {
-    const candidate = aboutMatch[1].trim();
-    const projects = await prisma.project.findMany();
-    const byPartner = {};
-    projects.forEach(p => {
-      const partner = p.partnerName || 'Unknown';
-      if (!byPartner[partner]) byPartner[partner] = [];
-      byPartner[partner].push(p);
-    });
-    const matchingPartner = Object.keys(byPartner).find(
-      key => key.toLowerCase().includes(candidate.toLowerCase())
-    );
-    if (matchingPartner) {
-      const partnerProjects = byPartner[matchingPartner];
-      let content = `**${matchingPartner}** has ${partnerProjects.length} project${partnerProjects.length > 1 ? 's' : ''}:`;
-      partnerProjects.forEach(p => {
-        const amount = (typeof p.budget === 'number' ? p.budget : 0).toLocaleString();
-        content += `\n• ${p.name} — Budget: AED ${amount}`;
-      });
-      return res.json({ content, type: 'text' });
-    }
-  }
-
-  // Partner(s) with the most projects: handle ties
-  if (/partner.*most.*project/.test(lower)) {
-    const projects = await prisma.project.findMany();
-    const byPartner = {};
-    projects.forEach(p => {
-      const partner = p.partnerName || 'Unknown';
-      if (!byPartner[partner]) byPartner[partner] = [];
-      byPartner[partner].push(p);
-    });
-    const counts = Object.values(byPartner).map(arr => arr.length);
-    const maxCount = Math.max(...counts);
-    const topPartners = Object.entries(byPartner).filter(([, arr]) => arr.length === maxCount);
-    let content;
-    if (topPartners.length === 1) {
-      const [partner, partnerProjects] = topPartners[0];
-      content = `The partner with the most projects is **${partner}** with ${partnerProjects.length} project${partnerProjects.length > 1 ? 's' : ''}:`;
-      partnerProjects.forEach(p => {
-        const amount = (typeof p.budget === 'number' ? p.budget : 0).toLocaleString();
-        content += `\n• ${p.name} — Budget: AED ${amount}`;
-      });
-    } else {
-      const partnerNames = topPartners.map(([partner]) => `**${partner}**`).join(', ');
-      content = `The partners with the most projects (${maxCount} each) are ${partnerNames}:`;
-      topPartners.forEach(([partner, partnerProjects]) => {
-        content += `\n\n**${partner}** has ${partnerProjects.length} projects:`;
-        partnerProjects.forEach(p => {
-          const amount = (typeof p.budget === 'number' ? p.budget : 0).toLocaleString();
-          content += `\n• ${p.name} — Budget: AED ${amount}`;
-        });
-      });
-    }
-    return res.json({ content, type: 'text' });
-  }
-
-  // Booking via parseBookingCommand on lastUser
-  const cmd = parseBookingCommand(lastUser);
-  if (cmd && !cmd.isBulk) {
-    const t0 = Date.now();
-    const r = await directBooking({ staffName: cmd.staffName, projectBookings: cmd.projectBookings, date: cmd.date });
-    const ms = Date.now() - t0;
-    return res.json(
-      r.success
-        ? { content: r.message, type: 'text', booking: r.assignments, processingTime: `${ms}ms`, isMultiProject: r.isMultiProject }
-        : { content: r.message, type: 'text', error: r.error, processingTime: `${ms}ms` }
-    );
-  }
-
-  // Default: use GPT function-calling with full context
-  try {
-    // Prepend a system message to guide function usage and handle follow-ups
-    const commonSystem = `You are a world-class data assistant with direct access to these data functions: getAllStaff, getAllProjects, findProjects, aggregateProjects, getTotalBudget, getProjectDetails, getTeamAvailability, getProductiveHours, getStaffProductiveHours. ALWAYS call the appropriate function to retrieve reliable, up-to-date data in JSON. For queries asking for partners with the most or least number of projects, use the aggregateProjects function with groupBy: 'partnerName', metrics: ['count'], sort by count descending (for most) or ascending (for least), and set limits appropriately. NEVER hallucinate or fabricate information. After calling the function(s), process the returned data and provide a concise, factual response. Prefix your reasoning steps with "Thinking:".`;
-    const chat = [
-      { role: 'system', content: commonSystem },
-      ...messages
-    ];
-    const initial = await openai.chat.completions.create({
-      model: chatModel,
-      messages: chat,
-      functions: functionDefinitions,
-      function_call: 'auto',
-      temperature: 0,
-    });
-    let reply = initial.choices[0].message;
-    if (reply.function_call) {
-      const fnName = reply.function_call.name;
-      const args = JSON.parse(reply.function_call.arguments || '{}');
-      const fnRes = functionMapping[fnName] ? await functionMapping[fnName](args) : {};
-      const follow = await openai.chat.completions.create({
-        model: chatModel,
-        messages: [
-          ...chat,
-          reply,
-          { role: 'function', name: fnName, content: JSON.stringify(fnRes) }
-        ],
-        temperature: 0,
-      });
-      reply = follow.choices[0].message;
-    }
-    return res.json({ content: reply.content, type: 'text' });
-  } catch (err) {
-    console.error('Ask GPT failed', err);
-    return res.status(500).json({ error: 'ask_failed', message: err.message });
+  } catch (e) {
+    console.error('/api/ask error', e);
+    return res.status(500).json({ error: 'ask_failed', message: e.message });
   }
 });
 

@@ -8,6 +8,8 @@ CREATE TABLE staff (
   city TEXT,
   country TEXT,
   skills TEXT,
+  email TEXT,
+  metadata JSONB NOT NULL DEFAULT '{}',
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );

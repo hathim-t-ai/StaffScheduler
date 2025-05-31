@@ -9,7 +9,6 @@ import {
   Chip,
   Button,
   Divider,
-  Avatar,
   Autocomplete,
   Tooltip,
   Menu,
@@ -31,12 +30,17 @@ import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import format from 'date-fns/format';
 import axios from 'axios';
+import Accordion from '@mui/material/Accordion';
+import AccordionSummary from '@mui/material/AccordionSummary';
+import AccordionDetails from '@mui/material/AccordionDetails';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 
 interface Message {
   sender: 'user' | 'bot';
   text: string;
   type?: 'text' | 'json' | 'schedule_result' | 'thinking';
   timestamp: Date;
+  duration?: number;
 }
 
 interface StaffMember {
@@ -96,7 +100,7 @@ const ChatWidget: React.FC = () => {
   
   const [messages, setMessages] = useState<Message[]>(loadMessagesFromStorage);
   const [input, setInput] = useState('');
-  const [mode, setMode] = useState<'ask' | 'agent'>('ask');
+  const [mode, setMode] = useState<string>('ask');
   const [loading, setLoading] = useState(false);
   const [selectedDate, setSelectedDate] = useState<Date | null>(new Date());
   const [selectedStaff, setSelectedStaff] = useState<StaffMember[]>([]);
@@ -224,8 +228,27 @@ const ChatWidget: React.FC = () => {
 
   const [pendingReport, setPendingReport] = useState<{ startDate?: string } | null>(null);
 
+  const thinkingIndexRef = useRef<number | null>(null);
+  const fullTextRef = useRef<string>('');
+  const startTimeRef = useRef<number>(0);
+
   const sendMessage = async () => {
     if (!input.trim()) return;
+    // Trim input to remove unintended whitespace
+    const trimmedInput = input.trim();
+    // Intercept simple greetings in Ask mode and respond immediately without streaming
+    if (mode === 'ask') {
+      const trimmedLower = trimmedInput.toLowerCase();
+      if (/^(hello|hi|hey)\b/.test(trimmedLower)) {
+        const userText = trimmedInput;
+        // Display user message
+        setMessages(prev => [...prev, { sender: 'user', text: userText, timestamp: new Date(), type: 'text' }]);
+        // Display bot greeting
+        setMessages(prev => [...prev, { sender: 'bot', text: 'Hello! How can I assist you today?', timestamp: new Date(), type: 'text' }]);
+        setInput('');
+        return;
+      }
+    }
     // Handle pending report clarification
     const lower = input.toLowerCase();
     if (pendingReport) {
@@ -248,6 +271,46 @@ const ChatWidget: React.FC = () => {
         setMessages(prev => [...prev, { sender: 'bot', text: 'Please specify: weekly, monthly, or overall.', timestamp: new Date() }]);
         return;
       }
+    }
+    // Intercept department availability queries (e.g., "Forensic", "Analytics")
+    const deptMatch = lower.match(/is anyone from the ([a-z ]+) department working on (\d{1,2}(?:st|nd|rd|th)?\s+\w+)/i);
+    if (deptMatch) {
+      const deptNameRaw = deptMatch[1].trim();
+      const deptName = deptNameRaw.toLowerCase();
+      // Parse the requested date
+      const rawDate = deptMatch[2].replace(/(st|nd|rd|th)/i, '');
+      const withYear = /\d{4}/.test(rawDate) ? rawDate : `${rawDate} ${new Date().getFullYear()}`;
+      const parsedDate = new Date(withYear);
+      const isoDate = !isNaN(parsedDate.getTime()) ? format(parsedDate, 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd');
+      // Show user message
+      setMessages(prev => [...prev, { sender: 'user', text: input, timestamp: new Date(), type: 'text' }]);
+      setInput('');
+      try {
+        const staffRes = await axios.get('/api/staff');
+        const deptStaff = staffRes.data.filter((s: any) => s.department?.toLowerCase() === deptName);
+        const capitalizedDept = deptName.charAt(0).toUpperCase() + deptName.slice(1);
+        if (deptStaff.length === 0) {
+          setMessages(prev => [...prev, { sender: 'bot', text: `No, there are no staff members in the ${capitalizedDept} department.`, timestamp: new Date(), type: 'text' }]);
+        } else {
+          const assignmentsRes = await axios.get('/api/assignments');
+          const assignedOnDate = assignmentsRes.data.filter((a: any) => a.date === isoDate && deptStaff.some((s: any) => s.id === a.staffId));
+          if (assignedOnDate.length === 0) {
+            setMessages(prev => [...prev, { sender: 'bot', text: `No, no one from the ${capitalizedDept} department is scheduled on ${isoDate}.`, timestamp: new Date(), type: 'text' }]);
+          } else {
+            const lines = assignedOnDate.map((a: any) => {
+              const staffRecord = deptStaff.find((s: any) => s.id === a.staffId);
+              const name = staffRecord ? staffRecord.name : 'Staff';
+              return `${name}: ${a.hours}h on ${a.projectName}`;
+            });
+            setMessages(prev => [...prev, { sender: 'bot', text: `Yes, the following ${capitalizedDept} staff are scheduled on ${isoDate}:\n• ${lines.join('\n• ')}`, timestamp: new Date(), type: 'text' }]);
+          }
+        }
+      } catch (err) {
+        console.error('Department availability intercept error', deptName, err);
+        setMessages(prev => [...prev, { sender: 'bot', text: 'Sorry, I encountered an error fetching schedules.', timestamp: new Date(), type: 'text' }]);
+      }
+      scrollToBottom();
+      return;
     }
     // Intercept generate report requests (Agent mode only)
     if (lower.includes('generate') && lower.includes('report')) {
@@ -292,85 +355,104 @@ const ChatWidget: React.FC = () => {
       setInput('');
       return;
     }
-    // Default behavior
+    // Ask mode: always use non-streaming endpoint for reliable final answers
+    // Streaming support disabled — fall through to the axios-based ask below
+    // Default behavior: send to Python orchestrator
+    // Extract optional date for Ask mode (e.g., '26th May')
+    let askDate: string | undefined;
+    if (mode === 'ask') {
+      try {
+        const dateMatch = input.match(/(\d{1,2}(?:st|nd|rd|th)?\s+\w+(?:\s+\d{4})?)/i);
+        if (dateMatch) {
+          let raw = dateMatch[1].replace(/(st|nd|rd|th)/i, '');
+          const withYear = /\d{4}/.test(raw) ? raw : `${raw} ${new Date().getFullYear()}`;
+          const parsed = new Date(withYear);
+          if (!isNaN(parsed.getTime())) {
+            askDate = format(parsed, 'yyyy-MM-dd');
+          }
+        }
+      } catch {
+        askDate = undefined;
+      }
+    }
     setLoading(true);
     const userText = input;
     setMessages(prev => [...prev, { sender: 'user', text: userText, timestamp: new Date() }]);
     setInput('');
 
-    // Show thinking message bubble to indicate processing
-    const thinkingMsg: Message = { sender: 'bot', text: 'Thinking...', timestamp: new Date(), type: 'thinking' };
-    setMessages(prev => [...prev, thinkingMsg]);
-
     try {
-      const endpoint = mode === 'ask'
-        ? '/api/ask'
-        : '/api/orchestrate';
-
-      // Determine payload, supporting simple confirmation in agent mode
-      let payload;
+      // Determine endpoint and build payload
+      const endpoint = mode === 'ask' ? '/api/ask' : '/api/orchestrate';
+      let payload: any;
+      // Check for booking confirmation in agent mode
       const confirmationPattern = /^(yes|yep|confirm|proceed|go ahead|book them)/i;
-      const isConfirmation = mode === 'agent' && confirmationPattern.test(input.trim());
+      const isConfirmation = mode === 'agent' && confirmationPattern.test(userText.trim());
       if (isConfirmation && lastAgentPayload) {
-        // Reuse previous agent payload on confirmation
         payload = lastAgentPayload;
       } else if (mode === 'ask') {
-        // For Ask mode, send full conversation context with a system prompt
+        // Ask mode: send full conversation to simple Q&A endpoint
         const formattedMessages = [
-          { role: 'system', content: 'You are a factual assistant with access to database query functions; use them to provide accurate information.' },
-          ...messages.map(m => ({ role: m.sender === 'user' ? 'user' : 'assistant', content: m.text }))
+          { role: 'system', content: 'You are a factual assistant with direct access to concrete data functions. ALWAYS use the appropriate function to fetch data, never fabricate. Provide concise and direct answers without including internal reasoning.' },
+          ...messages.map(m => ({ role: m.sender === 'user' ? 'user' : 'assistant', content: m.text })),
+          { role: 'user', content: userText }
         ];
-        payload = { messages: formattedMessages, mode: 'ask' };
+        payload = { messages: formattedMessages };
       } else {
-        // Build a typed agent payload
-        const agentPayload = { query: input, mode: 'agent' } as const;
-        setLastAgentPayload(agentPayload);
-        payload = agentPayload;
+        // Agent mode: booking command payload
+        payload = { query: userText, mode: 'command', intent: 'booking' };
+        if (selectedDate) payload.date = format(selectedDate, 'yyyy-MM-dd');
+        if (selectedStaff.length > 0) payload.staffIds = selectedStaff.map(s => s.id);
+        if (selectedProjects.length > 0) payload.projectIds = selectedProjects.map(p => p.id);
+        if (hours) payload.hours = hours;
+        setLastAgentPayload(payload);
       }
-      
       const res = await axios.post(endpoint, payload);
       
-      // Process the response appropriately based on mode
-      let botText = '';
-      let messageType: 'text' | 'json' | 'schedule_result' = 'text';
-      
-      if (mode === 'ask') {
-        if (typeof res.data.content === 'string') {
+      // Process the response and visualize chain-of-thought for ask mode or handle scheduling for agent mode
+      if (mode === 'ask' && typeof res.data.content === 'string') {
+        const finalAnswer = res.data.content.trim();
+        setMessages(prev => {
+          const withoutThinking = prev.filter(m => m.type !== 'thinking');
+          return [
+            ...withoutThinking,
+            {
+              sender: 'bot',
+              text: finalAnswer,
+              timestamp: new Date(),
+              type: 'text'
+            }
+          ];
+        });
+      } else {
+        // Agent mode or non-string content: preserve original scheduling formatting
+        let botText = '';
+        let messageType: 'text' | 'json' | 'schedule_result' = 'text';
+        if (mode !== 'ask' && res.data.resolvedMatches) {
+          const matchCount = res.data.resolvedMatches.length;
+          botText = `✅ Successfully scheduled ${matchCount} assignment${matchCount !== 1 ? 's' : ''}.\n\n`;
+          res.data.resolvedMatches.forEach((match: MatchResult) => {
+            const staffName = match.staffName || 'Staff';
+            botText += `• ${staffName}: ${match.assignedHours} hour${match.assignedHours !== 1 ? 's' : ''} on ${match.date || 'the selected date'}\n`;
+          });
+          messageType = 'schedule_result';
+        } else if (typeof res.data.content === 'string') {
           botText = res.data.content;
           messageType = res.data.type || 'text';
         } else {
           botText = JSON.stringify(res.data);
           messageType = 'json';
         }
-      } else {
-        // Format scheduling results in a user-friendly way
-        if (res.data.resolvedMatches) {
-          const matchCount = res.data.resolvedMatches.length;
-          botText = `✅ Successfully scheduled ${matchCount} assignment${matchCount !== 1 ? 's' : ''}.\n\n`;
-          
-          res.data.resolvedMatches.forEach((match: MatchResult) => {
-            const staffName = match.staffName || 'Staff';
-            botText += `• ${staffName}: ${match.assignedHours} hour${match.assignedHours !== 1 ? 's' : ''} on ${match.date || 'the selected date'}\n`;
-          });
-          
-          messageType = 'schedule_result';
-        } else {
-          botText = JSON.stringify(res.data);
-          messageType = 'json';
-        }
+        const botMsg: Message = {
+          sender: 'bot',
+          text: botText,
+          timestamp: new Date(),
+          type: messageType
+        };
+        setMessages(prev => {
+          const withoutThinking = prev.filter(m => m.type !== 'thinking');
+          return [...withoutThinking, botMsg];
+        });
       }
-      
-      const botMsg: Message = { 
-        sender: 'bot', 
-        text: botText,
-        timestamp: new Date(),
-        type: messageType
-      };
-      
-      setMessages(prev => {
-        const withoutThinking = prev.filter(m => m.type !== 'thinking');
-        return [...withoutThinking, botMsg];
-      });
       
       // 🚀 AUTO-REFRESH SCHEDULE: Trigger calendar refresh if booking was successful
       if (
@@ -446,47 +528,51 @@ const ChatWidget: React.FC = () => {
             : '/api/orchestrate';
           axios.post(retryEndpoint, originalPayload)
             .then(res => {
-              // Process the response appropriately based on mode
-              let botText = '';
-              let messageType: 'text' | 'json' | 'schedule_result' = 'text';
-              
-              if (mode === 'ask') {
-                if (typeof res.data.content === 'string') {
+              // Process the response and visualize chain-of-thought for ask mode or handle scheduling for agent mode
+              if (mode === 'ask' && typeof res.data.content === 'string') {
+                const finalAnswer = res.data.content.trim();
+                setMessages(prev => {
+                  const withoutThinking = prev.filter(m => m.type !== 'thinking');
+                  return [
+                    ...withoutThinking,
+                    {
+                      sender: 'bot',
+                      text: finalAnswer,
+                      timestamp: new Date(),
+                      type: 'text'
+                    }
+                  ];
+                });
+              } else {
+                // Agent mode or non-string content: preserve original scheduling formatting
+                let botText = '';
+                let messageType: 'text' | 'json' | 'schedule_result' = 'text';
+                if (mode !== 'ask' && res.data.resolvedMatches) {
+                  const matchCount = res.data.resolvedMatches.length;
+                  botText = `✅ Successfully scheduled ${matchCount} assignment${matchCount !== 1 ? 's' : ''}.\n\n`;
+                  res.data.resolvedMatches.forEach((match: MatchResult) => {
+                    const staffName = match.staffName || 'Staff';
+                    botText += `• ${staffName}: ${match.assignedHours} hour${match.assignedHours !== 1 ? 's' : ''} on ${match.date || 'the selected date'}\n`;
+                  });
+                  messageType = 'schedule_result';
+                } else if (typeof res.data.content === 'string') {
                   botText = res.data.content;
                   messageType = res.data.type || 'text';
                 } else {
                   botText = JSON.stringify(res.data);
                   messageType = 'json';
                 }
-              } else {
-                // Format scheduling results in a user-friendly way
-                if (res.data.resolvedMatches) {
-                  const matchCount = res.data.resolvedMatches.length;
-                  botText = `✅ Successfully scheduled ${matchCount} assignment${matchCount !== 1 ? 's' : ''}.\n\n`;
-                  
-                  res.data.resolvedMatches.forEach((match: MatchResult) => {
-                    const staffName = match.staffName || 'Staff';
-                    botText += `• ${staffName}: ${match.assignedHours} hour${match.assignedHours !== 1 ? 's' : ''} on ${match.date || 'the selected date'}\n`;
-                  });
-                  
-                  messageType = 'schedule_result';
-                } else {
-                  botText = JSON.stringify(res.data);
-                  messageType = 'json';
-                }
+                const botMsg: Message = {
+                  sender: 'bot',
+                  text: botText,
+                  timestamp: new Date(),
+                  type: messageType
+                };
+                setMessages(prev => {
+                  const withoutThinking = prev.filter(m => m.type !== 'thinking');
+                  return [...withoutThinking, botMsg];
+                });
               }
-              
-              const botMsg: Message = { 
-                sender: 'bot', 
-                text: botText,
-                timestamp: new Date(),
-                type: messageType
-              };
-              
-              setMessages(prev => {
-                const withoutThinking = prev.filter(m => m.type !== 'thinking');
-                return [...withoutThinking, botMsg];
-              });
               
               // 🚀 AUTO-REFRESH SCHEDULE: Trigger calendar refresh if booking was successful (retry path)
               if (
@@ -542,41 +628,40 @@ const ChatWidget: React.FC = () => {
           alignItems: isUser ? 'flex-end' : 'flex-start'
         }}
       >
-        <Box sx={{ 
-          display: 'flex', 
+        <Box sx={{
+          display: 'flex',
           alignItems: 'flex-start',
           flexDirection: isUser ? 'row-reverse' : 'row'
         }}>
-          <Avatar 
-            sx={{ 
-              width: 32, 
-              height: 32, 
-              mr: isUser ? 0 : 1, 
-              ml: isUser ? 1 : 0,
-              bgcolor: isUser ? 'secondary.main' : 'primary.main' 
-            }}
-          >
-            {isUser ? 'U' : 'A'}
-          </Avatar>
-          <Paper
-            elevation={1}
+          <Box
             sx={{
               p: 1.5,
-              maxWidth: '85%',
+              maxWidth: '75%',
               borderRadius: 2,
-              bgcolor: isUser ? 'secondary.light' : 'grey.100',
-              color: isUser ? 'white' : 'text.primary',
+              bgcolor: isUser ? 'primary.light' : 'grey.100',
+              color: isUser ? 'white' : 'text.primary'
             }}
           >
             {message.type === 'thinking' ? (
-              <Typography variant="body2" sx={{ fontStyle: 'italic', color: 'text.secondary' }}>{message.text}</Typography>
+              <Accordion disableGutters elevation={0} sx={{ bgcolor: 'transparent' }}>
+                <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                  <Typography variant="body2" sx={{ fontStyle: 'italic', color: 'text.secondary' }}>
+                    Thought{message.duration ? ` for ${message.duration.toFixed(1)} seconds` : ''}
+                  </Typography>
+                </AccordionSummary>
+                <AccordionDetails>
+                  <Typography variant="body2" sx={{ fontStyle: 'italic', color: 'text.secondary' }}>
+                    {message.text}
+                  </Typography>
+                </AccordionDetails>
+              </Accordion>
             ) : message.type === 'json' ? (
               formatJsonOutput(message.text)
             ) : message.type === 'schedule_result' ? (
-              <Typography 
-                variant="body2" 
-                component="div" 
-                sx={{ 
+              <Typography
+                variant="body2"
+                component="div"
+                sx={{
                   whiteSpace: 'pre-line'
                 }}
               >
@@ -585,7 +670,7 @@ const ChatWidget: React.FC = () => {
             ) : (
               <Typography variant="body2">{message.text}</Typography>
             )}
-          </Paper>
+          </Box>
         </Box>
         <Typography 
           variant="caption" 
@@ -714,6 +799,7 @@ const ChatWidget: React.FC = () => {
                 vertical: 'top',
                 horizontal: 'right',
               }}
+              PaperProps={{ sx: { bgcolor: 'white' } }}
             >
               <MenuItem onClick={clearChat}>
                 <ClearIcon sx={{ mr: 1 }} />
@@ -820,8 +906,8 @@ const ChatWidget: React.FC = () => {
                       disabled={loading || !input.trim()}
                       sx={{ ml: 1 }}
                     >
-                      {/* Always show send icon; thinking bubble indicates loading */}
-                      <SendIcon />
+                      {/* Show spinner while loading, otherwise send icon */}
+                      {loading ? <CircularProgress size={24} /> : <SendIcon />}
                     </IconButton>
                   )}
                 </Box>

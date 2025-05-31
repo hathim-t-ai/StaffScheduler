@@ -7,7 +7,7 @@ import DeleteIcon from '@mui/icons-material/Delete';
 // Import Redux and API utilities
 import { useSelector, useDispatch } from 'react-redux';
 import { RootState } from '../store';
-import { createClient } from '@supabase/supabase-js';
+import axios from 'axios';
 import { v4 as uuidv4 } from 'uuid';
 
 // Import app components
@@ -25,37 +25,24 @@ import Notification from '../components/schedule/Notification';
 import { useScheduleManager } from '../hooks/useScheduleManager';
 import { isAtEndDate as checkIsAtEndDate } from '../utils/ScheduleUtils';
 import { StaffMember } from '../store/slices/staffSlice';
-import { clearSchedule, clearScheduleForStaff, setTasks, setStartDate } from '../store/slices/scheduleSlice';
-
-// Initialize Supabase client
-const supabaseUrl = process.env.REACT_APP_SUPABASE_URL;
-const supabaseAnonKey = process.env.REACT_APP_SUPABASE_ANON_KEY;
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
+import { clearSchedule, clearScheduleForStaff, setTasks, setStartDate, removeRange } from '../store/slices/scheduleSlice';
 
 const SchedulingPage: React.FC = () => {
   const dispatch = useDispatch();
   
-  // Function to load assignments from Supabase
+  // Function to load assignments from API
   const loadAssignments = useCallback(async () => {
     try {
-      const { data, error } = await supabase
-        .from('assignments')
-        .select('*');
-      
-      if (error) {
-        console.error('Error loading assignments', error);
-        return;
-      }
-      
-      const tasks = data.map((a: { id: string; staff_id: string; date: string; project_name: string; hours: number; project_id: string; }) => ({
+      const response = await axios.get('/api/assignments');
+      const tasks = response.data.map((a: any) => ({
         id: a.id,
-        staffId: a.staff_id,
+        staffId: a.staffId,
         date: a.date,
-        taskType: a.project_name,
+        taskType: a.projectName,
         hours: a.hours,
-        projectId: a.project_id,
+        projectId: a.projectId,
       }));
-      console.log('[SchedulingPage] Tasks fetched from Supabase:', tasks);
+      console.log('[SchedulingPage] Tasks fetched from API:', tasks);
       dispatch(setTasks(tasks));
     } catch (err) {
       console.error('Error loading assignments', err);
@@ -163,36 +150,31 @@ const SchedulingPage: React.FC = () => {
   const handleClearSchedule = async () => {
     // Close confirmation dialog immediately
     setClearDialogOpen(false);
+    // Delete assignments on server via API
+    const from = weekDates[0].toISOString().split('T')[0];
+    const to = weekDates[weekDates.length - 1].toISOString().split('T')[0];
     try {
-      // Determine date range for current week
-      const from = weekDates[0].toISOString().split('T')[0];
-      const to = weekDates[weekDates.length - 1].toISOString().split('T')[0];
-      // Build deletion payload
       const payload: any = { from, to };
       if (selectedStaffIds.length > 0) {
         payload.staffIds = selectedStaffIds;
       }
-      // Delete assignments from server
-      await supabase
-        .from('assignments')
-        .delete()
-        .gte('date', from)
-        .lte('date', to);
-      // Clear assignments in local Redux state and localStorage
-      if (selectedStaffIds.length > 0) {
-        dispatch(clearScheduleForStaff(selectedStaffIds));
-        setSelectedStaffIds([]);
-      } else {
-        dispatch(clearSchedule());
-      }
-      // Notify success
-      handleCloseNotification();
-      setNotification({ open: true, message: 'Schedule data has been cleared', severity: 'info' });
+      await axios.delete('/api/assignments/range', { data: payload });
     } catch (error: any) {
       console.error('Error clearing schedule', error);
       handleCloseNotification();
       setNotification({ open: true, message: `Could not clear schedule: ${error.message}`, severity: 'error' });
+      return;
     }
+    // Update local state
+    if (selectedStaffIds.length > 0) {
+      dispatch(clearScheduleForStaff(selectedStaffIds));
+      setSelectedStaffIds([]);
+    } else {
+      dispatch(removeRange({ from, to }));
+    }
+    // Notify success
+    handleCloseNotification();
+    setNotification({ open: true, message: 'Schedule data has been cleared', severity: 'info' });
   };
   
   // Handler to run orchestration via CrewAI
@@ -200,7 +182,7 @@ const SchedulingPage: React.FC = () => {
     try {
       // Use the current start date for daily scheduling
       const date = currentStartDate.toISOString().split('T')[0];
-      const res = await supabase.from('orchestrate').insert([{ date }]).select();
+      const res = await axios.post('/api/orchestrate', { date });
       const { data } = res;
       // Transform resolvedMatches into ScheduleTask objects
       const tasks = data.map((match: any) => ({

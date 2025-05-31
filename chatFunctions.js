@@ -91,17 +91,20 @@ async function getStaffAssignments({ staffName, from, to }) {
       return { error: 'Staff not found', staffName, availableStaff: allStaff.map(s => s.name) };
     }
 
+    // Use ISO date strings to avoid timezone parsing errors
+    const fromStr = fromDate.toISOString().split('T')[0];
+    const toStr = toDate.toISOString().split('T')[0];
     const { data: assignments, error: assignmentsError } = await supabase
       .from('assignments')
-      .select('*, project(*)')
+      .select('*, projects(*)')
       .eq('staff_id', staff.id)
-      .gte('date', fromDate)
-      .lte('date', toDate);
+      .gte('date', fromStr)
+      .lte('date', toStr);
     if (assignmentsError) { console.error('Error fetching assignments:', assignmentsError); return { error: assignmentsError.message }; }
     const formatted = assignments.map(a => ({
       projectId:   a.projectId,
-      projectName: a.project.name,
-      date:        a.date.toISOString().split('T')[0],
+      projectName: a.projects ? a.projects.name : null,
+      date:        (new Date(a.date)).toISOString().split('T')[0],
       hours:       a.hours
     }));
 
@@ -127,18 +130,42 @@ async function getAllStaff() {
   return data;
 }
 
+// Default grade rates mapping (AED per hour), can override via GRADE_RATES_JSON env var
+const DEFAULT_GRADE_RATES = {
+  Associate: 100,
+  "Senior Associate": 150,
+  Manager: 200,
+  Director: 300,
+  Partner: 400
+};
+const gradeRates = process.env.GRADE_RATES_JSON
+  ? JSON.parse(process.env.GRADE_RATES_JSON)
+  : DEFAULT_GRADE_RATES;
+
 async function getProjectDetails({ projectName }) {
   const { data: all, error: projError } = await supabase.from('projects').select('*');
   if (projError) throw projError;
   const project = all.find(p => p.name.toLowerCase() === projectName.toLowerCase());
   if (!project) return null;
 
+  // Fetch assignments along with staff metadata and grade to compute budget consumption
   const { data: assignments, error: asgError } = await supabase
     .from('assignments')
-    .select('*')
+    .select('hours, staff ( metadata, grade )')
     .eq('project_id', project.id);
   if (asgError) throw asgError;
-  const consumed = assignments.reduce((s,a)=>s+a.hours,0);
+  // Calculate consumed budget: sum of hours * staff rate (from metadata.rate or grade mapping)
+  let consumedBudget = 0;
+  assignments.forEach(a => {
+    // Determine rate: metadata.rate takes precedence, otherwise lookup by grade
+    let rate = 0;
+    if (a.staff && a.staff.metadata && a.staff.metadata.rate) {
+      rate = parseFloat(a.staff.metadata.rate) || 0;
+    } else if (a.staff && a.staff.grade) {
+      rate = gradeRates[a.staff.grade] || 0;
+    }
+    consumedBudget += a.hours * rate;
+  });
   return {
     projectId: project.id,
     projectName: project.name,
@@ -146,8 +173,8 @@ async function getProjectDetails({ projectName }) {
     partnerName: project.partnerName,
     teamLead: project.teamLead,
     budget: project.budget,
-    consumedHours: consumed,
-    remainingBudget: typeof project.budget === 'number' ? project.budget - consumed : null
+    consumedBudget,
+    remainingBudget: typeof project.budget === 'number' ? project.budget - consumedBudget : null
   };
 }
 
@@ -174,7 +201,7 @@ async function getTeamAvailability({ from, to }) {
   const totalPossible = days * 8;
 
   return staff.map(s=>{
-    const assigned = assignments.filter(a=>a.staffId===s.id).reduce((sum,a)=>sum+a.hours,0);
+    const assigned = assignments.filter(a=>a.staff_id===s.id).reduce((sum,a)=>sum+a.hours,0);
     return {
       staffId: s.id,
       staffName: s.name,
@@ -198,7 +225,7 @@ async function getStaffProductiveHours({ staffName, from, to }) {
 
   const start = new Date(from);
   const end   = new Date(to);
-  const assignments = await supabase.from('assignments').select('*').eq('staffId', staff.id).gte('date', start).lte('date', end);
+  const assignments = await supabase.from('assignments').select('*').eq('staff_id', staff.id).gte('date', start).lte('date', end);
   const total = assignments.reduce((s,a)=>s+a.hours,0);
   return { staffId: staff.id, staffName: staff.name, from, to, productiveHours: total };
 }
@@ -234,7 +261,7 @@ async function createAssignmentsFromSchedule({ assignments }) {
         id         : saved.id,
         staffName  : saved.staff.name,
         projectName: saved.project.name,
-        date       : saved.date.toISOString().split('T')[0],
+        date       : (new Date(saved.date)).toISOString().split('T')[0],
         hours      : saved.hours,
         bookedHours: saved.hours
       });
@@ -370,7 +397,11 @@ async function directBooking({ staffName, projectBookings, date }) {
     }
 
     /* ---------- entity look-ups ---------- */
-    const allStaff = await supabase.from('staff').select('*');
+    const { data: allStaff, error: staffError } = await supabase.from('staff').select('*');
+    if (staffError) {
+      console.error('directBooking staff fetch error:', staffError);
+      throw staffError;
+    }
     const staff = allStaff.find(s =>
       s.name.toLowerCase().includes(staffName.toLowerCase()) ||
       staffName.toLowerCase().includes(s.name.toLowerCase())
@@ -383,7 +414,11 @@ async function directBooking({ staffName, projectBookings, date }) {
       };
     }
 
-    const allProjects = await supabase.from('projects').select('*');
+    const { data: allProjects, error: projectsError } = await supabase.from('projects').select('*');
+    if (projectsError) {
+      console.error('directBooking projects fetch error:', projectsError);
+      throw projectsError;
+    }
     const found = [], missing = [];
     for (const b of projectBookings) {
       const p = allProjects.find(pr =>
@@ -403,10 +438,16 @@ async function directBooking({ staffName, projectBookings, date }) {
     /* ---------- capacity check ---------- */
     const target = new Date(date);
     const dayStart = new Date(Date.UTC(target.getFullYear(), target.getMonth(), target.getDate()));
-    const dayEnd   = new Date(Date.UTC(target.getFullYear(), target.getMonth(), target.getDate(), 23, 59, 59, 999));
-
-    const todays = await supabase.from('assignments').select('*').eq('staffId', staff.id).gte('date', dayStart).lte('date', dayEnd);
-    const current = todays.reduce((s,a)=>s+a.hours,0);
+    // Use ISO date string for filtering by date
+    const dayStr = dayStart.toISOString().split('T')[0];
+    const { data: todays, error: assignmentsError } = await supabase.from('assignments').select('*')
+      .eq('staff_id', staff.id)
+      .eq('date', dayStr);
+    if (assignmentsError) {
+      console.error('directBooking assignments fetch error:', assignmentsError);
+      throw assignmentsError;
+    }
+    const current = todays.reduce((sum, a) => sum + a.hours, 0);
     const incoming = found.reduce((s,f)=>s+f.hours,0);
     if (current + incoming > 8) {
       return {
@@ -419,19 +460,28 @@ async function directBooking({ staffName, projectBookings, date }) {
     /* ---------- create assignments ---------- */
     const created = [];
     for (const f of found) {
-      const a = await supabase.from('assignments').insert({
-        staffId:  staff.id,
-        projectId:f.project.id,
-        date:     dayStart,
-        hours:    f.hours
-      }).returning('*');
+      // Insert and select to get related staff and project names
+      const { data: a, error: insertErr } = await supabase
+        .from('assignments')
+        .insert({
+          staff_id: staff.id,
+          project_id: f.project.id,
+          date: dayStr,
+          hours: f.hours
+        })
+        .select('*, staff(name), projects(name)')
+        .single();
+      if (insertErr) {
+        console.error('directBooking insert error:', insertErr);
+        throw insertErr;
+      }
       created.push({
-        id:a.id,
-        staffName:a.staff.name,
-        projectName:a.project.name,
-        date:a.date.toISOString().split('T')[0],
-        hours:a.hours,
-        bookedHours: a.hours 
+        id: a.id,
+        staffName: a.staff.name,
+        projectName: a.projects.name,
+        date: (new Date(a.date)).toISOString().split('T')[0],
+        hours: a.hours,
+        bookedHours: a.hours
       });
     }
     

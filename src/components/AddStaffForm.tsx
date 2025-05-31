@@ -32,6 +32,7 @@ const AddStaffForm: React.FC<AddStaffFormProps> = ({ open, onClose, onAdd, onUpd
     department: '',
     city: '',
     country: '',
+    email: '',
     skills: []
   });
   const [currentSkill, setCurrentSkill] = useState('');
@@ -44,7 +45,7 @@ const AddStaffForm: React.FC<AddStaffFormProps> = ({ open, onClose, onAdd, onUpd
       if (initialData) {
         setFormData({ ...initialData });
       } else {
-        setFormData({ name: '', grade: '', department: '', city: '', country: '', skills: [] });
+        setFormData({ name: '', grade: '', department: '', city: '', country: '', email: '', skills: [] });
       }
       setCurrentSkill('');
       setErrors({});
@@ -117,6 +118,7 @@ const AddStaffForm: React.FC<AddStaffFormProps> = ({ open, onClose, onAdd, onUpd
         department: formData.department || '',
         city: formData.city || '',
         country: formData.country || '',
+        email: formData.email || '',
         skills: formData.skills || [],
         // Add any custom fields
         ...customFields.reduce((acc, field) => {
@@ -135,7 +137,7 @@ const AddStaffForm: React.FC<AddStaffFormProps> = ({ open, onClose, onAdd, onUpd
   };
 
   const handleClose = () => {
-    setFormData({ name: '', grade: '', department: '', city: '', country: '', skills: [] });
+    setFormData({ name: '', grade: '', department: '', city: '', country: '', email: '', skills: [] });
     setCurrentSkill('');
     setErrors({});
     onClose();
@@ -219,6 +221,17 @@ const AddStaffForm: React.FC<AddStaffFormProps> = ({ open, onClose, onAdd, onUpd
               helperText={errors.country}
               margin="normal"
               required
+            />
+          </Grid>
+          <Grid item xs={12} md={6}>
+            <TextField
+              fullWidth
+              label="Email"
+              name="email"
+              type="email"
+              value={formData.email || ''}
+              onChange={handleChange}
+              margin="normal"
             />
           </Grid>
           <Grid item xs={12}>

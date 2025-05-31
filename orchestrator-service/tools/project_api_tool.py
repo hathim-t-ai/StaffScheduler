@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 
 
 class ProjectAPITool(BaseTool):
-    name: str = "Project API Tool"
+    name: str = "getProjects"
     description: str = (
         "Fetch project information from the backend API. "
         "Can retrieve all projects or filter by specific project IDs or names."

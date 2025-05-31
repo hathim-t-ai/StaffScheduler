@@ -12,13 +12,7 @@ import { StaffMember } from '../store/slices/staffSlice';
 import { Project } from '../store/slices/projectSlice';
 import { ContextMenuPosition, DragItem, NotificationState, StaffHours } from '../components/schedule/types';
 import { getDatesForCurrentWeek, formatDateISO } from '../utils/ScheduleUtils';
-import { createClient } from '@supabase/supabase-js';
 import axios from 'axios';
-
-// Initialize Supabase client
-const supabaseUrl = process.env.REACT_APP_SUPABASE_URL!;
-const supabaseAnonKey = process.env.REACT_APP_SUPABASE_ANON_KEY!;
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 export const useScheduleManager = (staffMembers: StaffMember[], projects: Project[]) => {
   const dispatch = useDispatch();
@@ -160,9 +154,18 @@ export const useScheduleManager = (staffMembers: StaffMember[], projects: Projec
     closeTaskDrawer();
   };
   
-  // Remove a task
-  const removeTask = (taskId: string) => {
-    setCurrentTasks(currentTasks.filter(task => task.id !== taskId));
+  // Remove a task and delete assignment from backend
+  const removeTask = async (taskId: string) => {
+    try {
+      await axios.delete(`/api/assignments/${taskId}`);
+      setCurrentTasks(currentTasks.filter(task => task.id !== taskId));
+      // Refresh calendar to load updated assignments
+      window.dispatchEvent(new Event('refreshCalendar'));
+      setNotification({ open: true, message: 'Assignment deleted successfully', severity: 'success' });
+    } catch (err) {
+      console.error('Error deleting assignment', err);
+      setNotification({ open: true, message: 'Failed to delete assignment', severity: 'error' });
+    }
   };
   
   // Drag and drop handlers
@@ -330,25 +333,19 @@ export const useScheduleManager = (staffMembers: StaffMember[], projects: Projec
     handleCloseContextMenu();
   };
   
-  const handleClearDay = () => {
+  // Clear all assignments for a specific staff and date
+  const handleClearDay = async () => {
     if (!contextMenu) return;
-    
     const { staffId, date } = contextMenu;
-    
-    // Remove all tasks for this staff and date
-    const updatedTasks = scheduleTasks.filter(
-      task => !(task.staffId === staffId && task.date === date)
-    );
-    
-    dispatch(setTasks(updatedTasks));
-    
-    // Show notification
-    setNotification({
-      open: true,
-      message: 'Day cleared successfully!',
-      severity: 'success'
-    });
-    
+    try {
+      await axios.delete('/api/assignments/range', { data: { from: date, to: date, staffIds: [staffId] } });
+      // Refresh calendar to load updated assignments
+      window.dispatchEvent(new Event('refreshCalendar'));
+      setNotification({ open: true, message: 'Day cleared successfully!', severity: 'success' });
+    } catch (err) {
+      console.error('Error clearing day assignments', err);
+      setNotification({ open: true, message: 'Failed to clear day', severity: 'error' });
+    }
     handleCloseContextMenu();
   };
   

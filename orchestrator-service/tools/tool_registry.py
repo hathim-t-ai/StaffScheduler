@@ -4,9 +4,16 @@ Tool Registry for CrewAI RAG-infused Staff Scheduling System
 
 from .staff_api_tool import StaffAPITool
 from .project_api_tool import ProjectAPITool
+from .assignments_api_tool import GetAssignmentsTool
+from .search_vectors_tool import SearchVectorsTool
+from .python_math_tool import PythonMathTool
+from .delete_range_tool import DeleteRangeTool
+from .email_tool import EmailTool
+from .python_tool import PythonTool
 from .availability_tool import AvailabilityTool
 from .assignment_creation_tool import AssignmentCreationTool
 from .report_tool import ReportTool
+from crewai_tools import PGSearchTool, CSVSearchTool, DirectorySearchTool, DirectoryReadTool, EXASearchTool, SerperDevTool, JSONSearchTool, XMLSearchTool
 
 
 class ToolRegistry:
@@ -19,11 +26,25 @@ class ToolRegistry:
     def _initialize_tools(self):
         """Initialize all available tools"""
         self._tools = {
-            'staff_api': StaffAPITool(),
-            'project_api': ProjectAPITool(),
+            'getStaff': StaffAPITool(),
+            'getProjects': ProjectAPITool(),
+            'getAssignments': GetAssignmentsTool(),
+            'searchVectors': SearchVectorsTool(),
+            'pythonMath': PythonMathTool(),
+            'createAssignments': AssignmentCreationTool(),
+            'deleteRange': DeleteRangeTool(),
+            'EmailTool': EmailTool(),
+            'PythonTool': PythonTool(),
             'availability': AvailabilityTool(),
-            'assignment_creation': AssignmentCreationTool(),
             'generate_report': ReportTool(),
+            'PGSearchTool': PGSearchTool(),
+            'CSVSearchTool': CSVSearchTool(),
+            'DirectorySearchTool': DirectorySearchTool(),
+            'DirectoryReadTool': DirectoryReadTool(),
+            'EXASearchTool': EXASearchTool(),
+            'SerperDevTool': SerperDevTool(),
+            'JSONSearchTool': JSONSearchTool(),
+            'XMLSearchTool': XMLSearchTool(),
         }
     
     def get_tool(self, tool_name: str):
@@ -37,14 +58,16 @@ class ToolRegistry:
     def get_tools_for_agent(self, agent_name: str):
         """Get tools relevant for a specific agent"""
         agent_tool_mapping = {
-            'CommandParser': [],
-            'AvailabilityFetcher': ['staff_api', 'availability'],
-            'ShiftMatcher': ['staff_api', 'project_api', 'availability'],
-            'Notifier': ['staff_api', 'project_api'],
-            'ConflictResolver': ['availability'],
-            'AuditLogger': ['assignment_creation'],
-            'RetrievalAgent': ['staff_api', 'project_api', 'availability'],
-            'SummarizerAgent': [],
+            'ChatAnalyst': [
+                'getStaff', 'getProjects', 'getAssignments', 'searchVectors', 'pythonMath',
+                'PGSearchTool', 'CSVSearchTool', 'DirectorySearchTool', 'DirectoryReadTool',
+                'EXASearchTool', 'SerperDevTool', 'JSONSearchTool', 'XMLSearchTool'
+            ],
+            'AnswerVerifier': ['pythonMath'],
+            'Scheduler': ['searchVectors', 'getStaff', 'getProjects', 'createAssignments', 'deleteRange'],
+            'AutoPlanner': ['getAssignments', 'getStaff', 'getProjects', 'pythonMath', 'createAssignments'],
+            'EmailAgent': ['getAssignments', 'getStaff', 'EmailTool'],
+            'ReportGenerator': ['getAssignments', 'getProjects', 'pythonMath', 'PythonTool'],
         }
         
         tool_names = agent_tool_mapping.get(agent_name, [])

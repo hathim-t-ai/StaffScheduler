@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 
 
 class StaffAPITool(BaseTool):
-    name: str = "Staff API Tool"
+    name: str = "getStaff"
     description: str = (
         "Fetch staff information from the backend API. "
         "Can retrieve all staff or filter by specific staff IDs."
