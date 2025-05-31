@@ -1,11 +1,10 @@
 import httpx
 import json
 from typing import List, Dict, Any, Optional
-from crewai.tools import BaseTool
 from pydantic import BaseModel, Field
 
 
-class ProjectAPITool(BaseTool):
+class ProjectAPITool:
     name: str = "getProjects"
     description: str = (
         "Fetch project information from the backend API. "

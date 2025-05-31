@@ -2,11 +2,10 @@ import httpx
 import json
 from datetime import datetime
 from typing import List, Dict, Any, Optional
-from crewai.tools import BaseTool
 from pydantic import BaseModel, Field
 
 
-class AvailabilityTool(BaseTool):
+class AvailabilityTool:
     name: str = "Availability Tool"
     description: str = (
         "Fetch staff availability for a specific date from the backend API. "

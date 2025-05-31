@@ -1,9 +1,8 @@
 import httpx
 import json
 from typing import List, Optional
-from crewai.tools import BaseTool
 
-class DeleteRangeTool(BaseTool):
+class DeleteRangeTool:
     name: str = "deleteRange"
     description: str = (
         "Delete assignments within a date range, optionally filtering by project or staff IDs."

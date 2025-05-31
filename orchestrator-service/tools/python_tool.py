@@ -2,9 +2,9 @@ import os
 import subprocess
 import tempfile
 import json
-from crewai.tools import BaseTool
+# from crewai.tools import BaseTool (removed due to updated crewai API)
 
-class PythonTool(BaseTool):
+class PythonTool:
   """Tool to execute Python scripts for tasks like plotting and PDF generation"""
   name: str = "PythonTool"
   description: str = (

@@ -576,6 +576,77 @@ app.post('/api/orchestrate', async (req, res) => {
         // First, attempt to parse and handle booking via NLP and directBooking
         const queryText = req.body.query || req.body.originalQuery || req.body.text || '';
         const cmd = parseBookingCommand(queryText);
+        // Handle bulk booking via NLP when date ranges or departments are used
+        if (cmd && cmd.isBulk) {
+          // Collect staff rows based on department or individual names
+          let staffRows = [];
+          const deptMatch = cmd.staffName && cmd.staffName.match(/^(?:the\s+)?(.+?) department$/i);
+          if (deptMatch) {
+            const deptName = deptMatch[1].trim().toLowerCase();
+            const { data: allStaff, error: staffError } = await supabase.from('staff').select('*');
+            if (staffError) {
+              console.error('Bulk booking staff fetch error:', staffError);
+              return res.status(500).json({ content: 'Failed to fetch staff', type: 'text', error: staffError.message });
+            }
+            staffRows = allStaff.filter(s => s.department && s.department.toLowerCase().includes(deptName));
+            if (!staffRows.length) {
+              return res.json({ content: `Could not find staff in department "${deptName}".`, type: 'text', error: 'staff_not_found' });
+            }
+          } else {
+            const names = cmd.staffName
+              ? cmd.staffName.split(/\s*(?:and|,|&)\s*/i).map(n => n.trim()).filter(Boolean)
+              : [];
+            const { data: allStaff, error: staffError } = await supabase.from('staff').select('*');
+            if (staffError) {
+              console.error('Bulk booking staff fetch error:', staffError);
+              return res.status(500).json({ content: 'Failed to fetch staff', type: 'text', error: staffError.message });
+            }
+            names.forEach(name => {
+              const match = allStaff.find(s => s.name.toLowerCase().includes(name.toLowerCase()));
+              if (match) staffRows.push(match);
+            });
+            if (!staffRows.length) {
+              return res.json({ content: `Could not find staff: ${names.join(', ')}.`, type: 'text', error: 'staff_not_found' });
+            }
+          }
+          // Fetch projects
+          const { data: allProjects, error: projError } = await supabase.from('projects').select('*');
+          if (projError) {
+            console.error('Bulk booking projects fetch error:', projError);
+            return res.status(500).json({ content: 'Failed to fetch projects', type: 'text', error: projError.message });
+          }
+          // Build dates list
+          const dates = [];
+          if (cmd.dateRange) {
+            let cur = new Date(cmd.dateRange.from);
+            const end = new Date(cmd.dateRange.to);
+            while (cur <= end) {
+              dates.push(cur.toISOString().split('T')[0]);
+              cur.setDate(cur.getDate() + 1);
+            }
+          } else if (cmd.date) {
+            dates.push(cmd.date.toISOString().split('T')[0]);
+          }
+          // Assemble assignment rows
+          const assignmentsPayload = [];
+          for (const staff of staffRows) {
+            for (const booking of cmd.projectBookings) {
+              const project = allProjects.find(p =>
+                p.name.toLowerCase().includes(booking.projectName.toLowerCase()) ||
+                booking.projectName.toLowerCase().includes(p.name.toLowerCase())
+              );
+              if (!project) {
+                return res.json({ content: `Could not find project "${booking.projectName}".`, type: 'text', error: 'project_not_found' });
+              }
+              dates.forEach(dateStr => {
+                assignmentsPayload.push({ staffId: staff.id, projectId: project.id, date: dateStr, hours: booking.hours });
+              });
+            }
+          }
+          // Bulk upsert via shared helper
+          const bulkResult = await createAssignmentsFromSchedule({ assignments: assignmentsPayload });
+          return res.json({ content: bulkResult.message, type: 'text', booking: bulkResult.assignments, isMultiProject: true });
+        }
         if (cmd && !cmd.isBulk) {
           const result = await directBooking({ staffName: cmd.staffName, projectBookings: cmd.projectBookings, date: cmd.date });
           return result.success
@@ -909,11 +980,115 @@ app.post('/api/ask', async (req, res) => {
 
   // Booking via parseBookingCommand
   const cmd = parseBookingCommand(lower);
-  if (cmd && !cmd.isBulk) {
-    const result = await directBooking({ staffName: cmd.staffName, projectBookings: cmd.projectBookings, date: cmd.date });
-    return result.success
-      ? res.json({ content: result.message, type: 'text', booking: result.assignments, isMultiProject: result.isMultiProject })
-      : res.json({ content: result.message, type: 'text', error: result.error });
+  if (cmd) {
+    // Try booking via CrewAI orchestrator first
+    try {
+      // Build detailed payload for orchestrator using parsed cmd
+      const orchestratorUrl = process.env.ORCHESTRATOR_URL || 'http://localhost:8000';
+      const orchestratorPayload = {
+        mode: 'command',
+        intent: 'booking',
+        query: lastUser,
+        projectBookings: cmd.projectBookings,
+      };
+      // Include staff names array
+      if (cmd.staffName) {
+        orchestratorPayload.staffNames = cmd.staffName.split(/\s*(?:and|,|&)\s*/i)
+          .map(n => n.trim()).filter(Boolean);
+      }
+      // Include date or dateRange strings
+      if (cmd.dateRange) {
+        orchestratorPayload.dateRange = {
+          from: cmd.dateRange.from.toISOString().split('T')[0],
+          to:   cmd.dateRange.to.toISOString().split('T')[0]
+        };
+      } else if (cmd.date) {
+        orchestratorPayload.date = cmd.date.toISOString().split('T')[0];
+      }
+      const { data: orchestratorResult } = await axios.post(
+        `${orchestratorUrl}/orchestrate`,
+        orchestratorPayload
+      );
+      return res.json(orchestratorResult);
+    } catch (orErr) {
+      console.error('Orchestrator booking proxy failed, falling back to local logic', orErr);
+      // continue to local booking handler
+    }
+    if (cmd.isBulk) {
+      // Bulk booking across multiple staff, projects, and dates
+      let staffRows = [];
+      const deptMatch = cmd.staffName && cmd.staffName.match(/^(?:the\s+)?(.+?) department$/i);
+      if (deptMatch) {
+        const deptName = deptMatch[1].trim().toLowerCase();
+        const { data: allStaff, error: staffError } = await supabase.from('staff').select('*');
+        if (staffError) {
+          console.error('Bulk booking staff fetch error:', staffError);
+          return res.status(500).json({ content: 'Failed to fetch staff', type: 'text', error: staffError.message });
+        }
+        staffRows = allStaff.filter(s => s.department && s.department.toLowerCase().includes(deptName));
+        if (!staffRows.length) {
+          return res.json({ content: `Could not find staff in department "${deptName}".`, type: 'text', error: 'staff_not_found' });
+        }
+      } else {
+        const names = cmd.staffName
+          ? cmd.staffName.split(/\s*(?:and|,|&)\s*/i).map(n => n.trim()).filter(Boolean)
+          : [];
+        const { data: allStaff, error: staffError } = await supabase.from('staff').select('*');
+        if (staffError) {
+          console.error('Bulk booking staff fetch error:', staffError);
+          return res.status(500).json({ content: 'Failed to fetch staff', type: 'text', error: staffError.message });
+        }
+        names.forEach(name => {
+          const match = allStaff.find(s => s.name.toLowerCase().includes(name.toLowerCase()));
+          if (match) staffRows.push(match);
+        });
+        if (!staffRows.length) {
+          return res.json({ content: `Could not find staff: ${names.join(', ')}.`, type: 'text', error: 'staff_not_found' });
+        }
+      }
+      const { data: allProjects, error: projError } = await supabase.from('projects').select('*');
+      if (projError) {
+        console.error('Bulk booking projects fetch error:', projError);
+        return res.status(500).json({ content: 'Failed to fetch projects', type: 'text', error: projError.message });
+      }
+      // Build date list
+      const dates = [];
+      if (cmd.dateRange) {
+        let cur = new Date(cmd.dateRange.from);
+        const end = new Date(cmd.dateRange.to);
+        while (cur <= end) {
+          dates.push(cur.toISOString().split('T')[0]);
+          cur.setDate(cur.getDate() + 1);
+        }
+      } else if (cmd.date) {
+        dates.push(cmd.date.toISOString().split('T')[0]);
+      }
+      // Assemble assignment rows
+      const assignmentsPayload = [];
+      for (const staff of staffRows) {
+        for (const booking of cmd.projectBookings) {
+          const project = allProjects.find(p =>
+            p.name.toLowerCase().includes(booking.projectName.toLowerCase()) ||
+            booking.projectName.toLowerCase().includes(p.name.toLowerCase())
+          );
+          if (!project) {
+            return res.json({ content: `Could not find project "${booking.projectName}".`, type: 'text', error: 'project_not_found' });
+          }
+          dates.forEach(dateStr => {
+            assignmentsPayload.push({ staffId: staff.id, projectId: project.id, date: dateStr, hours: booking.hours });
+          });
+        }
+      }
+      // Bulk upsert via shared helper
+      const bulkResult = await createAssignmentsFromSchedule({ assignments: assignmentsPayload });
+      return res.json({ content: bulkResult.message, type: 'text', booking: bulkResult.assignments, isMultiProject: true });
+    } else {
+      // Single booking
+      const result = await directBooking({ staffName: cmd.staffName, projectBookings: cmd.projectBookings, date: cmd.date });
+      return result.success
+        ? res.json({ content: result.message, type: 'text', booking: result.assignments, isMultiProject: result.isMultiProject })
+        : res.json({ content: result.message, type: 'text', error: result.error });
+    }
   }
 
   // Default: GPT function-calling with Supabase-backed functions

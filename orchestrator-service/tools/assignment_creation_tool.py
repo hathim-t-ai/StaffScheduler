@@ -1,11 +1,10 @@
 import httpx
 import json
 from typing import List, Dict, Any, Optional
-from crewai.tools import BaseTool
 from pydantic import BaseModel, Field
 
 
-class AssignmentCreationTool(BaseTool):
+class AssignmentCreationTool:
     name: str = "createAssignments"
     description: str = (
         "Create new staff assignments in the database. "

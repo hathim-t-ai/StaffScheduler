@@ -1,7 +1,7 @@
 import ast
 import operator as op
 import json
-from crewai.tools import BaseTool
+# from crewai.tools import BaseTool (removed due to updated crewai API)
 
 # supported operators
 operators = {
@@ -41,7 +41,7 @@ def safe_eval(node):
     else:
         raise ValueError(f"Unsupported node type: {type(node)}")
 
-class PythonMathTool(BaseTool):
+class PythonMathTool:
     name: str = "pythonMath"
     description: str = (
         "Evaluate basic math expressions with support for sum, avg/mean.")

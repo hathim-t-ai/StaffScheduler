@@ -1,7 +1,6 @@
 import os
 import json
 import httpx
-from crewai.tools import BaseTool
 from pydantic import BaseModel, Field
 
 # Arguments schema for the report tool
@@ -65,7 +64,7 @@ def render_pdf(data: dict, start: str, end: str) -> str:
   c.save()
   return file_path
 
-class ReportTool(BaseTool):
+class ReportTool:
   """Tool to generate a PDF scheduling report for a given date range"""
   name: str = "generate_report"
   args_schema = ReportArgs

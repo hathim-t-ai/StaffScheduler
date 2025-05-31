@@ -3,9 +3,8 @@ import smtplib
 import json
 from typing import List
 from email.mime.text import MIMEText
-from crewai.tools import BaseTool
 
-class EmailTool(BaseTool):
+class EmailTool:
     name: str = "EmailTool"
     description: str = (
         "Send templated emails to recipients via SMTP."

@@ -13,7 +13,6 @@ from .python_tool import PythonTool
 from .availability_tool import AvailabilityTool
 from .assignment_creation_tool import AssignmentCreationTool
 from .report_tool import ReportTool
-from crewai_tools import PGSearchTool, CSVSearchTool, DirectorySearchTool, DirectoryReadTool, EXASearchTool, SerperDevTool, JSONSearchTool, XMLSearchTool
 
 
 class ToolRegistry:
@@ -37,14 +36,6 @@ class ToolRegistry:
             'PythonTool': PythonTool(),
             'availability': AvailabilityTool(),
             'generate_report': ReportTool(),
-            'PGSearchTool': PGSearchTool(),
-            'CSVSearchTool': CSVSearchTool(),
-            'DirectorySearchTool': DirectorySearchTool(),
-            'DirectoryReadTool': DirectoryReadTool(),
-            'EXASearchTool': EXASearchTool(),
-            'SerperDevTool': SerperDevTool(),
-            'JSONSearchTool': JSONSearchTool(),
-            'XMLSearchTool': XMLSearchTool(),
         }
     
     def get_tool(self, tool_name: str):

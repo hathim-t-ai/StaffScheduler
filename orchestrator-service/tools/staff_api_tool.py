@@ -1,11 +1,10 @@
 import httpx
 import json
 from typing import List, Dict, Any, Optional
-from crewai.tools import BaseTool
 from pydantic import BaseModel, Field
 
 
-class StaffAPITool(BaseTool):
+class StaffAPITool:
     name: str = "getStaff"
     description: str = (
         "Fetch staff information from the backend API. "

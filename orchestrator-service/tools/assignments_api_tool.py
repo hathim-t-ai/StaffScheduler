@@ -1,9 +1,9 @@
 import httpx
 import json
 from typing import List, Optional
-from crewai.tools import BaseTool
+# from crewai.tools import BaseTool (removed due to updated crewai API)
 
-class GetAssignmentsTool(BaseTool):
+class GetAssignmentsTool:
     name: str = "getAssignments"
     description: str = (
         "Fetch assignment data from the backend API. "

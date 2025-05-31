@@ -69,13 +69,13 @@
   "scripts": {
     "start-client": "react-scripts start",
     "start-orchestrator": "node start-orchestrator.js",
+    "serve-chat": "USE_CREW=1 PORT=5001 node server.js",
     "start": "concurrently \"npm run serve-chat\" \"npm run start-client\" \"npm run start-orchestrator\"",
     "build": "react-scripts build",
     "test": "react-scripts test",
     "eject": "react-scripts eject",
     "lint": "eslint src/**/*.{ts,tsx}",
     "format": "prettier --write src/**/*.{ts,tsx,css}",
-    "serve-chat": "PORT=5001 node server.js",
     "truncate-db": "node scripts/truncateDb.js"
   },
   "proxy": "http://localhost:5001",

@@ -283,12 +283,13 @@ async def orchestrate(payload: OrchestrationInput, background_tasks: BackgroundT
                         agent_tools = tool_registry.get_tools_for_agent(agent_name)
                             
                         try:
+                            # Fallback: use configured backstory & llm_config
                             agent_instance = Agent(
                                 role=agent_config.get("role", agent_name),
                                 goal=agent_config.get("goal", "Complete the assigned tasks"),
                                 backstory=agent_config.get("backstory", ""),
                                 verbose=True,
-                                tools=agent_tools,  # Add RAG tools here
+                                tools=agent_tools,
                                 llm_config=agent_config.get("llm", {})
                             )
                             agents_list.append(agent_instance)

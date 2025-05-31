@@ -235,66 +235,64 @@ async function getStaffProductiveHours({ staffName, from, to }) {
  * If an assignment for (staff, project, date) already exists we update its hours.
  */
 async function createAssignmentsFromSchedule({ assignments }) {
-  const createdOrUpdated = [];
-
-  for (const row of assignments) {
-    try {
-      const saved = await supabase.from('assignments').upsert({
-        where : {
-          staffId_projectId_date: {            // ← name must match your @@unique
-            staffId  : row.staffId,
-            projectId: row.projectId,
-            date     : new Date(row.date)
-          }
-        },
-        update: { hours: row.hours },          // change hours if it exists
-        create: {
-          staffId  : row.staffId,
-          projectId: row.projectId,
-          date     : new Date(row.date),
-          hours    : row.hours
-        },
-        include: { project:true, staff:true }
-      });
-
-      createdOrUpdated.push({
-        id         : saved.id,
-        staffName  : saved.staff.name,
-        projectName: saved.project.name,
-        date       : (new Date(saved.date)).toISOString().split('T')[0],
-        hours      : saved.hours,
-        bookedHours: saved.hours
-      });
-
-    } catch (error) {
-      console.error('createAssignmentsFromSchedule upsert:', {
-        message : error.message,
-        code    : error.code,
-        meta    : error.meta
-      });
-    }
+  // Return early if no assignments
+  if (!assignments || assignments.length === 0) {
+    return {
+      success: true,
+      message: '✅ Scheduled 0 rows for 0 staff.',
+      assignments: []
+    };
   }
+  try {
+    // Prepare rows for upsert
+    const rows = assignments.map(row => ({
+      staff_id: row.staffId,
+      project_id: row.projectId,
+      date: row.date,
+      hours: row.hours
+    }));
+    // Bulk upsert with conflict on staff_id, project_id, date
+    const { data: savedRows, error } = await supabase
+      .from('assignments')
+      .upsert(rows, { onConflict: ['staff_id', 'project_id', 'date'], returning: 'representation' })
+      .select('id, date, hours, staff(name), projects(name)');
 
-  /* ---------- nicer summary ---------- */
-  const grouped = {};
-  createdOrUpdated.forEach(a => {
-    grouped[a.staffName] = grouped[a.staffName] || [];
-    grouped[a.staffName].push(a.date);
-  });
+    if (error) throw error;
+    // Map to unified format
+    const createdOrUpdated = (savedRows || []).map(a => ({
+      id: a.id,
+      staffName: a.staff.name,
+      projectName: a.projects.name,
+      date: a.date,
+      hours: a.hours,
+      bookedHours: a.hours
+    }));
 
-  const messageLines = Object.entries(grouped)
-    .map(([name, dates]) =>
-      `${name}: ${dates.length} days (${dates[0]} – ${dates.slice(-1)[0]})`
-    )
-    .join('\n• ');
+    // Build summary by staff
+    const grouped = {};
+    createdOrUpdated.forEach(a => {
+      grouped[a.staffName] = grouped[a.staffName] || [];
+      grouped[a.staffName].push(a.date);
+    });
+    const messageLines = Object.entries(grouped)
+      .map(([name, dates]) =>
+        `${name}: ${dates.length} days (${dates[0]} – ${dates.slice(-1)[0]})`
+      )
+      .join('\n• ');
 
-  return {
-    success: true,
-    message:
-      `✅ Scheduled ${createdOrUpdated.length} rows ` +
-      `for ${Object.keys(grouped).length} staff.\n\n• ${messageLines}`,
-    assignments: createdOrUpdated
-  };
+    return {
+      success: true,
+      message: `✅ Scheduled ${createdOrUpdated.length} rows for ${Object.keys(grouped).length} staff.\n\n• ${messageLines}`,
+      assignments: createdOrUpdated
+    };
+  } catch (error) {
+    console.error('createAssignmentsFromSchedule error:', error);
+    return {
+      success: false,
+      error: error.message,
+      message: 'Failed to schedule assignments.'
+    };
+  }
 }
 
 
@@ -364,6 +362,40 @@ function parseBookingCommand(query) {
 /* ------------------------------------------------------------------ */
 
 async function directBooking({ staffName, projectBookings, date }) {
+  // department-level booking
+  const deptMatch = staffName && staffName.match(/^(?:the\s+)?(.+?) department$/i);
+  if (deptMatch) {
+    const deptName = deptMatch[1].trim();
+    // fetch all staff
+    const { data: allStaff, error: staffError } = await supabase.from('staff').select('*');
+    if (staffError) {
+      console.error('directBooking staff fetch error (department):', staffError);
+      throw staffError;
+    }
+    // filter staff by department
+    const matching = allStaff.filter(s => s.department && s.department.toLowerCase() === deptName.toLowerCase());
+    if (!matching.length) {
+      return {
+        success: false,
+        error: 'staff_not_found',
+        message: `Could not find staff in department "${deptName}".`
+      };
+   }
+    // schedule for each staff member in department
+    let allAssignments = [];
+    for (const s of matching) {
+      const result = await directBooking({ staffName: s.name, projectBookings, date });
+      if (!result.success) return result;
+      allAssignments = allAssignments.concat(result.assignments);
+    }
+    return {
+      success: true,
+      message: `✅ Booked ${matching.length} members of ${deptName} department on project(s) for ${date.toISOString().split('T')[0]}.`,
+      assignments: allAssignments,
+      isMultiProject: true
+    };
+  }
+
   // split multi-staff names by commas, 'and', or '&'
   const names = staffName
     ? staffName.split(/\s*(?:and|,|&)\s*/i).map(n => n.trim()).filter(Boolean)

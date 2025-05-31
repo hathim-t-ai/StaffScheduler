@@ -1,9 +1,9 @@
 import httpx
 import json
 from typing import Optional
-from crewai.tools import BaseTool
+# from crewai.tools import BaseTool (removed due to updated crewai API)
 
-class SearchVectorsTool(BaseTool):
+class SearchVectorsTool:
     name: str = "searchVectors"
     description: str = (
         "Perform semantic search via vector embeddings. "
