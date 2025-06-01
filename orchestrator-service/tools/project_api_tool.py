@@ -1,7 +1,10 @@
-import httpx
+import os
 import json
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel, Field
+from supabase import create_client
+import re
+import httpx
 
 
 class ProjectAPITool:
@@ -11,44 +14,44 @@ class ProjectAPITool:
         "Can retrieve all projects or filter by specific project IDs or names."
     )
 
+    # Initialize Supabase client
+    _SUPABASE_URL = os.getenv("SUPABASE_URL")
+    _SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_KEY")
+    _supabase = create_client(_SUPABASE_URL, _SUPABASE_KEY)
+
     def _run(self, project_ids: Optional[List[str]] = None, project_name: Optional[str] = None) -> str:
         """
-        Fetch project information from the backend API
-        
-        Args:
-            project_ids: Optional list of specific project IDs to fetch
-            project_name: Optional project name to search for
-        
-        Returns:
-            JSON string containing project information
+        Fetch project information via the single source-of-truth HTTP API,
+        then filter locally on ID or name.
         """
         try:
-            # Fetch all projects from the API
+            # Retrieve all projects from the Node.js backend API
             url = 'http://localhost:5001/api/projects'
-            
             with httpx.Client() as client:
-                response = client.get(url)
-                response.raise_for_status()
-                all_projects = response.json()
-            
-            # Filter by project_ids if provided
-            if project_ids:
-                filtered_projects = [p for p in all_projects if p.get('id') in project_ids]
-                return json.dumps(filtered_projects, indent=2)
-            
-            # Filter by project_name if provided (case-insensitive partial match)
-            if project_name:
-                project_name_lower = project_name.lower()
-                filtered_projects = [
-                    p for p in all_projects 
-                    if project_name_lower in p.get('name', '').lower()
-                ]
-                return json.dumps(filtered_projects, indent=2)
-            
-            # Return all projects if no filters
-            return json.dumps(all_projects, indent=2)
-            
-        except httpx.HTTPError as e:
-            return f"Error fetching project data: {str(e)}"
+                resp = client.get(url)
+                resp.raise_for_status()
+                all_projects = resp.json()
         except Exception as e:
-            return f"Unexpected error: {str(e)}" 
+            return f"Error fetching project data: {str(e)}"
+
+        # Filter by explicit IDs
+        if project_ids:
+            filtered = [p for p in all_projects if p.get('id') in project_ids]
+            return json.dumps(filtered, indent=2)
+
+        # Filter by project_name(s)
+        if project_name:
+            # Support comma-separated or 'and'-separated lists
+            parts = re.split(r',| and ', project_name)
+            matches = []
+            for part in parts:
+                pname = part.strip().lower()
+                for p in all_projects:
+                    if pname in p.get('name', '').lower():
+                        matches.append(p)
+            # Deduplicate by ID
+            unique = {p['id']: p for p in matches}
+            return json.dumps(list(unique.values()), indent=2)
+
+        # No filters: return complete list
+        return json.dumps(all_projects, indent=2) 

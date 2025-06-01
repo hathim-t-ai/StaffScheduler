@@ -20,6 +20,10 @@ def validate_pipeline_output(result: Union[Dict[str, Any], str]) -> None:
     if isinstance(result, str):
         return
     
+    # If result is an error dict from CrewAI pipeline, accept it directly
+    if isinstance(result, dict) and 'error' in result:
+        return
+    
     # Check if this is an ask mode response
     if "response" in result or "content" in result:
         # This is an ask mode response

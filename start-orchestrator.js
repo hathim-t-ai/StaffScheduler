@@ -1,3 +1,5 @@
+// Load .env variables so child processes inherit Supabase credentials
+require('dotenv').config();
 const { spawn, exec } = require('child_process');
 const fs = require('fs');
 const path = require('path');

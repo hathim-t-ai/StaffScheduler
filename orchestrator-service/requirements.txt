@@ -9,4 +9,6 @@ pytest
 pytest-asyncio
 pyyaml
 python-multipart
-reportlab>=3.6.0 
+reportlab>=3.6.0
+# Add supabase client for direct DB access
+supabase>=0.2.9 

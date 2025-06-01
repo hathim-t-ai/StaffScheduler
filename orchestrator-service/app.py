@@ -15,11 +15,14 @@ import traceback
 from fastapi.staticfiles import StaticFiles
 from tools.report_tool import ReportTool, ReportArgs
 from dotenv import load_dotenv
+from pathlib import Path
+
+# Load environment from project root .env
+env_path = Path(__file__).parent.parent / '.env'
+load_dotenv(dotenv_path=str(env_path))
 
 # Import our RAG tools
 from tools.tool_registry import tool_registry
-
-load_dotenv()
 
 # Stub orchestrator and agent logic for testing
 class _StubOrchestrator:
@@ -194,7 +197,6 @@ async def orchestrate(payload: OrchestrationInput, background_tasks: BackgroundT
         if payload.mode == "ask" and isinstance(messages_list, list) and messages_list:
             user_query = messages_list[-1].get('content', '')
             import re
-            from datetime import datetime
             # Parse staff name from query
             name_match = re.search(r"Is\s+(.+?)\s+on any project", user_query, re.IGNORECASE)
             # Parse date from query
@@ -266,9 +268,16 @@ async def orchestrate(payload: OrchestrationInput, background_tasks: BackgroundT
 
             # Filter agent configs for chosen agents
             filtered_agent_configs = {k: v for k, v in agent_configs.items() if k in chosen_agents}
+            # In command-mode, strip backstories to reduce prompt size and token usage
+            if payload.mode == "command":
+                for cfg in filtered_agent_configs.values():
+                    cfg["backstory"] = ""
+                    # Optionally shorten the goal as well if needed
+                    # cfg["goal"] = cfg.get("goal", "").split('.')[0]
             
+            # Otherwise, fall back to Crew for other flows
+            # Instantiate CrewAI pipeline as before
             try:
-                # Instantiate CrewAI objects with proper config dictionaries
                 agents_list = []
                 for agent_name, agent_config in filtered_agent_configs.items():
                     # Make sure agent_config is a dictionary and has all required fields
@@ -281,47 +290,43 @@ async def orchestrate(payload: OrchestrationInput, background_tasks: BackgroundT
                         
                         # Get tools for this agent
                         agent_tools = tool_registry.get_tools_for_agent(agent_name)
-                            
                         try:
-                            # Fallback: use configured backstory & llm_config
+                            # Instantiate agent without passing tools or llm_config
                             agent_instance = Agent(
                                 role=agent_config.get("role", agent_name),
-                                goal=agent_config.get("goal", "Complete the assigned tasks"),
+                                goal=agent_config.get("goal", ""),
                                 backstory=agent_config.get("backstory", ""),
-                                verbose=True,
-                                tools=agent_tools,
-                                llm_config=agent_config.get("llm", {})
+                                # Only show verbose chain-of-thought in ask mode
+                                verbose=(payload.mode == "ask")
                             )
+                            # Assign tools post-instantiation
+                            agent_instance.tools = agent_tools
                             agents_list.append(agent_instance)
                             print(f"Created agent {agent_name} with {len(agent_tools)} tools")
                         except Exception as e:
                             print(f"Error creating agent {agent_name}: {e}")
-                            # Create a minimal agent as fallback
+                            # Create a minimal agent as fallback without tools
                             agent_instance = Agent(
                                 role=agent_name,
-                                goal="Complete the assigned tasks",
-                                verbose=True,
-                                tools=agent_tools if agent_tools else []
+                                goal=agent_config.get("goal", ""),
+                                backstory=agent_config.get("backstory", ""),
+                                verbose=(payload.mode == "ask")
                             )
+                            agent_instance.tools = agent_tools
                             agents_list.append(agent_instance)
     
-                # Build tasks list: one Task per agent for sequential execution
+                # Build tasks list: use the original query as description if present, otherwise default
                 tasks_list = [
-                    Task(description=f"Run agent {agent.role}", agent=agent)
+                    Task(description=payload.query or f"Run agent {agent.role}", agent=agent)
                     for agent in agents_list
                 ]
-                # Fallback stub orchestrator if no agents configured
-                if not agents_list:
-                    print("No agents configured, falling back to stub orchestrator")
-                    result = await orchestrator.run({"date": payload.date, "query": payload.query})
-                    validate_pipeline_output(result)
-                    return result
     
-                # Pass conversation history so agents have additional context in ask mode
+                # Pass conversation history only for ask mode (omit for command flows to reduce token load)
                 crew_context: Dict[str, Any] = {}
-                if payload.mode == "ask" or payload.query:
+                if payload.mode == "ask":
                     crew_context["history"] = conversation_history
     
+                # Instantiate Crew with named tools mapping so tasks can reference them by name
                 crew = Crew(
                     agents=agents_list,
                     tasks=tasks_list,
@@ -343,13 +348,14 @@ async def orchestrate(payload: OrchestrationInput, background_tasks: BackgroundT
                     inputs["staff"] = staff
                     inputs["projects"] = projects
                 
-                # Merge any additional context (like history) into inputs before kickoff
+                # Merge any additional context (like history) into inputs before kickoff (if needed)
                 merged_inputs = {**inputs, **crew_context}
                 
                 # Debug logging
-                print(f"Starting crew.kickoff with inputs: {json.dumps(merged_inputs)}")
+                print("Starting crew.kickoff")
                 
-                result = await run_in_threadpool(lambda: crew.kickoff(inputs=merged_inputs))
+                # Kick off the Crew pipeline
+                result = await run_in_threadpool(lambda: crew.kickoff())
                 
                 # Debug logging
                 print(f"Crew kickoff result: {result}")
@@ -380,10 +386,15 @@ async def orchestrate(payload: OrchestrationInput, background_tasks: BackgroundT
                         result = {"response": result}
                         print(f"Wrapped string result in dict: {result}")
             
-                # For scheduling tasks, create assignments in background for command flows
-                if payload.mode == "command" and isinstance(result, dict) and "resolvedMatches" in result:
-                    background_tasks.add_task(process_assignments, result, payload)
-                    
+                # For scheduling tasks, only accept dicts containing resolvedMatches
+                if payload.mode == "command":
+                    # If we got valid resolvedMatches, schedule them
+                    if isinstance(result, dict) and "resolvedMatches" in result:
+                        background_tasks.add_task(process_assignments, result, payload)
+                    else:
+                        # Trigger fallback to Node directBooking by returning an error status
+                        raise HTTPException(status_code=500, detail="CrewAI could not resolve bookings; falling back to direct scheduling logic")
+            
                 # Save conversation turn into memory for this session
                 if isinstance(result, dict):
                     answer_text = result.get("response") or result.get("content") or json.dumps(result)
