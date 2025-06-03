@@ -1,7 +1,0 @@
-{
-  "date": "2025-05-21",
-  "availability": [
-    { "staffId": "1", "staffName": "Alice", "assignedHours": 2, "availableHours": 6 },
-    { "staffId": "2", "staffName": "Bob", "assignedHours": 0, "availableHours": 8 }
-  ]
-} 

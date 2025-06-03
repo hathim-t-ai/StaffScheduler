@@ -1,0 +1,268 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+1·server.js (root of the project)
+The Node service exposes the tools CrewAI calls.
+We make it:
+
+tolerant to multiple comma-separated names,
+
+case/spacing insensitive (ilike),
+
+able to auto-create a project if none exists (so an agent can “just do it”),
+
+return 404 instead of [] on “not found”.
+
+javascript
+Copy
+Edit
+/*  server.js  */
+---
+import express from 'express';
+import cors    from 'cors';
+import morgan  from 'morgan';
+import dotenv  from 'dotenv';
+import { createClient } from '@supabase/supabase-js';
+
+dotenv.config();
+const app = express();
+const PORT = process.env.PORT || 5001;
+
+app.use(cors());
+app.use(express.json({ limit: '1mb' }));
+app.use(morgan('tiny'));
+
+/* ----------  Supabase  ---------- */
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  // service_role is safest; anon will also work if RLS read policies exist
+  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY
+);
+
+/* ----------  Helpers  ---------- */
+const parseCsvNames = value =>
+  value.split(',').map(s => s.trim()).filter(Boolean);
+
+/* ----------  PROJECTS  ---------- */
+app.get('/api/projects', async (req, res) => {
+  const names = parseCsvNames(req.query.name ?? '');
+  if (!names.length) return res.status(400).json({ error: 'name query required' });
+
+  const { data, error } = await supabase
+    .from('projects')
+    .select('*')
+    .ilike('name', names.length === 1 ? names[0] : null)
+    .in('name', names.length > 1 ? names : null);
+
+  if (error) return res.status(500).json({ error: error.message });
+  if (!data || !data.length) return res.status(404).json({ data: [] });
+  res.json({ data });
+});
+
+app.post('/api/projects', async (req, res) => {
+  const { name, description = '', partner_name = '', team_lead = '' } = req.body;
+  if (!name) return res.status(400).json({ error: 'name is required' });
+
+  const { data, error } = await supabase
+    .from('projects')
+    .insert([{ name, description, partner_name, team_lead }])
+    .select();
+
+  if (error) return res.status(500).json({ error: error.message });
+  res.status(201).json({ data: data?.[0] });
+});
+
+/* ----------  STAFF  ---------- */
+app.get('/api/staff', async (req, res) => {
+  const names = parseCsvNames(req.query.name ?? '');
+  if (!names.length) return res.status(400).json({ error: 'name query required' });
+
+  const { data, error } = await supabase
+    .from('staff')
+    .select('*')
+    .ilike('name', names.length === 1 ? names[0] : null)
+    .in('name', names.length > 1 ? names : null);
+
+  if (error) return res.status(500).json({ error: error.message });
+  if (!data || !data.length) return res.status(404).json({ data: [] });
+  res.json({ data });
+});
+
+/* ----------  START  ---------- */
+app.listen(PORT, () =>
+  console.log(`✅  Chat/Tool server listening on http://localhost:${PORT}`)
+);
+
+---
+2·orchestrator-service/tools/create_project_tool.py
+New CrewAI tool so the agent can create projects on-the-fly.
+
+python
+Copy
+Edit
+# orchestrator-service/tools/create_project_tool.py  - COMPLETE FILE
+import os, requests
+
+API_ROOT = os.getenv("NODE_SERVER_URL", "http://localhost:5001")
+
+def create_project(name: str, description: str = "", partner_name: str = "", team_lead: str = "") -> dict:
+    """
+    Create a new project in Supabase and return its record.
+
+    Args:
+        name (str): Project name (required).
+        description (str): Optional description.
+        partner_name (str): Optional partner.
+        team_lead (str): Optional team lead.
+
+    Returns:
+        dict: {"id": ..., "uuid": ..., "name": ...}
+    """
+    payload = {
+        "name": name,
+        "description": description,
+        "partner_name": partner_name,
+        "team_lead": team_lead,
+    }
+    r = requests.post(f"{API_ROOT}/api/projects", json=payload, timeout=10)
+    r.raise_for_status()
+    return r.json()["data"]
+---
+3·orchestrator-service/tools/tool_registry.py
+Register the new tool and upgrade the existing get_projects / get_staff to accept CSV lists.
+
+python
+Copy
+Edit
+# orchestrator-service/tools/tool_registry.py  - COMPLETE FILE
+from crewai_tools import Tool
+
+from .create_project_tool import create_project
+from .http_tools          import fetch_projects, fetch_staff   # assumed existing
+
+TOOLS = {
+    "getProjects": Tool(
+        name        = "getProjects",
+        description = "Fetch project objects by name (case-insensitive, supports comma-separated list).",
+        func        = fetch_projects
+    ),
+    "getStaff": Tool(
+        name        = "getStaff",
+        description = "Fetch staff objects by name (case-insensitive, supports comma-separated list).",
+        func        = fetch_staff
+    ),
+    "createProject": Tool(
+        name        = "createProject",
+        description = "Create a new project if none exists and return the record.",
+        func        = create_project
+    ),
+}
+If your repos structure differs (e.g., you already have a tool_registry exporting a dict), just replace that file with the one above.
+---
+4·orchestrator-service/agents.yaml
+Full YAML with a JSON output schema so the orchestrator never chokes on a free-text apology again.
+
+yaml
+Copy
+Edit
+# orchestrator-service/agents.yaml  - COMPLETE FILE
+Scheduler:
+  role: "Fast Scheduler"
+  goal: "Book assignments for staff with as little back-and-forth as possible."
+  tools:
+    - getProjects
+    - getStaff
+    - createProject
+  output_schema:
+    type: object
+    properties:
+      resolvedMatches:
+        type: array
+        items:
+          type: object
+          properties:
+            staffId:   { type: string }
+            projectId: { type: string }
+            date:      { type: string, format: date }
+            hours:     { type: number }
+          required: [staffId, projectId, date, hours]
+      projectNotFound:
+        type: array
+        items: { type: string }
+      staffNotFound:
+        type: array
+        items: { type: string }
+    required: [resolvedMatches]
+  prompt: |
+    ### Context
+    You can call three tools:
+    • **getProjects(name)** - returns matching project list, 404 if none
+    • **getStaff(name)**    - returns matching staff list, 404 if none
+    • **createProject(name)** - create + return a new project
+
+    ### Instructions
+    1. Parse the query to extract:
+       - staff name(s)
+       - project name(s)
+       - date(s) (default today) and hours
+    2. Look up staff + project IDs (use fuzzy search).
+    3. If a project is missing, create it automatically.
+    4. Return a JSON object matching the schema above.
+
+    ### Example output
+    ```json
+    {
+      "resolvedMatches":[
+        {"staffId":"...", "projectId":"...", "date":"2025-06-09", "hours":4},
+        {"staffId":"...", "projectId":"...", "date":"2025-06-09", "hours":4}
+      ],
+      "projectNotFound":[],
+      "staffNotFound":[]
+    }
+    ```
+---
+5·orchestrator-service/app.py
+You only need to replace one function (process_pipeline).
+Below is the whole file for convenience (safe to overwrite).
+
+python
+Copy
+Edit
+# orchestrator-service/app.py  - COMPLETE FILE
+import json, os
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+from agents import get_agent  # assume helper that loads agents.yaml & Tool registry
+
+app = FastAPI()
+
+class OrchestrationPayload(BaseModel):
+    query:   str
+    mode:    str = "command"
+    intent:  str = ""
+    date:    str = ""
+    hours:   int | None = None
+
+@app.post("/orchestrate")
+def process_pipeline(payload: OrchestrationPayload):
+    agent = get_agent("Scheduler")
+    try:
+        result = agent(payload.query)
+    except Exception as e:
+        raise HTTPException(500, f"CrewAI execution error: {e}") from e
+
+    # Accept both dict and "json string"
+    if isinstance(result, str):
+        try:
+            result = json.loads(result)
+        except json.JSONDecodeError:
+            raise HTTPException(500, "CrewAI returned unparsable response")
+
+    if not isinstance(result, dict) or "resolvedMatches" not in result:
+        raise HTTPException(500, "CrewAI output missing 'resolvedMatches'")
+
+    # TODO - schedule the rows!  (Call your scheduling DB logic here.)
+    return {"status": "ok", "schedule": result["resolvedMatches"]}
+---

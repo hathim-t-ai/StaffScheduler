@@ -16,6 +16,8 @@ from fastapi.staticfiles import StaticFiles
 from tools.report_tool import ReportTool, ReportArgs
 from dotenv import load_dotenv
 from pathlib import Path
+from tools.tool_registry import tool_registry
+from agents import get_agent
 
 # Load environment from project root .env
 env_path = Path(__file__).parent.parent / '.env'
@@ -181,6 +183,279 @@ async def create_assignments(data: Dict):
         print(f"Error creating assignment: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to create assignment: {str(e)}")
 
+async def parse_booking_command(payload: OrchestrationInput):
+    """Parse natural language booking commands and create proper assignments"""
+    import re
+    
+    query = payload.query or ""
+    if not query:
+        return {"resolvedMatches": []}
+    
+    try:
+        # Parse staff names - look for "book [name]" or just names
+        staff_matches = re.findall(r"(?:book\s+)?([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)", query)
+        staff_names = [name.strip() for name in staff_matches if len(name.strip().split()) <= 3]  # Limit to reasonable names
+        
+        # Parse project names - look for "project [name]" or "on [name]"
+        project_matches = re.findall(r"(?:project|on)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)", query, re.IGNORECASE)
+        project_names = [name.strip() for name in project_matches]
+        
+        # Parse hours - look for numbers followed by "hrs" or "hours"
+        hours_matches = re.findall(r"(\d+)\s*(?:hrs?|hours?)", query, re.IGNORECASE)
+        hours_list = [int(h) for h in hours_matches]
+        
+        # Parse date - look for date patterns
+        date_match = re.search(r"(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]+)", query, re.IGNORECASE)
+        assignment_date = None
+        if date_match:
+            day = int(date_match.group(1))
+            month_str = date_match.group(2).capitalize()
+            try:
+                month = datetime.strptime(month_str, "%B").month
+                year = datetime.now().year
+                assignment_date = f"{year}-{month:02d}-{day:02d}"
+            except ValueError:
+                assignment_date = payload.date or datetime.now().strftime("%Y-%m-%d")
+        else:
+            assignment_date = payload.date or datetime.now().strftime("%Y-%m-%d")
+        
+        print(f"Parsed booking command:")
+        print(f"  Staff names: {staff_names}")
+        print(f"  Project names: {project_names}")
+        print(f"  Hours: {hours_list}")
+        print(f"  Date: {assignment_date}")
+        
+        # Look up staff IDs
+        staff_data = await fetch_data_from_backend("staff")
+        resolved_staff = []
+        for staff_name in staff_names:
+            for staff in staff_data:
+                if staff_name.lower() in staff.get("name", "").lower() or staff.get("name", "").lower() in staff_name.lower():
+                    resolved_staff.append({"id": staff["id"], "name": staff["name"]})
+                    break
+        
+        # Look up project IDs
+        project_data = await fetch_data_from_backend("projects")
+        resolved_projects = []
+        for project_name in project_names:
+            for project in project_data:
+                if project_name.lower() in project.get("name", "").lower() or project.get("name", "").lower() in project_name.lower():
+                    resolved_projects.append({"id": project["id"], "name": project["name"]})
+                    break
+        
+        print(f"Resolved staff: {resolved_staff}")
+        print(f"Resolved projects: {resolved_projects}")
+        
+        # Create resolved matches for only the requested staff and projects
+        resolved_matches = []
+        if resolved_staff and resolved_projects:
+            default_hours = hours_list[0] if hours_list else 8
+            
+            # Create assignments for each staff member to each project with specified hours
+            for staff in resolved_staff:
+                for i, project in enumerate(resolved_projects):
+                    # Use specific hours if multiple hour values are provided
+                    hours = hours_list[i] if i < len(hours_list) else default_hours
+                    
+                    resolved_matches.append({
+                        "staffId": staff["id"],
+                        "staffName": staff["name"],
+                        "projectId": project["id"],
+                        "projectName": project["name"],
+                        "date": assignment_date,
+                        "assignedHours": hours
+                    })
+        
+        print(f"Final resolved matches: {resolved_matches}")
+        
+        return {
+            "resolvedMatches": resolved_matches,
+            "parsed": {
+                "staffNames": staff_names,
+                "projectNames": project_names,
+                "hours": hours_list,
+                "date": assignment_date
+            }
+        }
+        
+    except Exception as e:
+        print(f"Error parsing booking command: {e}")
+        traceback.print_exc()
+        return {"resolvedMatches": []}
+
+async def enhanced_stub_orchestrator(payload: OrchestrationInput):
+    """Enhanced version of the original stub orchestrator with better query parsing"""
+    import re
+    
+    query = payload.query or ""
+    
+    # Parse the user's request to understand what they want
+    context = {
+        'date': payload.date or datetime.now().strftime("%Y-%m-%d"),
+        'query': query,
+        'requested_staff': [],
+        'requested_departments': [],
+        'requested_projects': [],
+        'requested_hours': 8  # default
+    }
+    
+    if query:
+        # Parse date from query - fix the date parsing issue
+        date_match = re.search(r"(\d{1,2})(?:st|nd|rd|th)?\s+(January|February|March|April|May|June|July|August|September|October|November|December)", query, re.IGNORECASE)
+        if date_match:
+            day = int(date_match.group(1))
+            month_str = date_match.group(2).capitalize()
+            try:
+                month = datetime.strptime(month_str, "%B").month
+                year = datetime.now().year
+                context['date'] = f"{year}-{month:02d}-{day:02d}"
+                print(f"Parsed date: {context['date']} from '{date_match.group(0)}'")
+            except ValueError:
+                print(f"Could not parse month: {month_str}")
+        
+        # Parse staff names
+        staff_matches = re.findall(r"book\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)", query, re.IGNORECASE)
+        context['requested_staff'] = [name.strip() for name in staff_matches]
+        
+        # Parse departments
+        dept_matches = re.findall(r"(?:book\s+(?:the\s+)?)?([A-Za-z]+)\s+department", query, re.IGNORECASE)
+        context['requested_departments'] = [dept.strip().lower() for dept in dept_matches]
+        
+        # Parse project names
+        project_matches = re.findall(r"(?:project|on project)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)", query, re.IGNORECASE)
+        context['requested_projects'] = [name.strip().split(' for')[0] for name in project_matches]
+        
+        # Parse hours
+        hours_matches = re.findall(r"(\d+)\s*(?:hrs?|hours?)", query, re.IGNORECASE)
+        if hours_matches:
+            context['requested_hours'] = int(hours_matches[0])
+    
+    print(f"Enhanced stub orchestrator context: {context}")
+    
+    # Run the original working pipeline
+    res = await availability_logic(context)
+    context.update(res)
+    res = await enhanced_shift_logic(context)
+    context.update(res)
+    res = await notifier_logic(context)
+    context.update(res)
+    res = await conflict_resolver_logic(context)
+    context.update(res)
+    res = await audit_logger_logic(context)
+    context.update(res)
+    
+    return context
+
+# Enhanced Shift Matcher that respects user requests
+async def enhanced_shift_logic(context):
+    """Enhanced ShiftMatcher that only assigns requested staff/departments to requested projects"""
+    import re
+    
+    availability = context.get('availability', [])
+    date = context.get('date')
+    requested_staff = context.get('requested_staff', [])
+    requested_departments = context.get('requested_departments', [])
+    requested_projects = context.get('requested_projects', [])
+    requested_hours = context.get('requested_hours', 8)
+    
+    print(f"Enhanced shift logic:")
+    print(f"  Requested staff: {requested_staff}")
+    print(f"  Requested departments: {requested_departments}")
+    print(f"  Requested projects: {requested_projects}")
+    print(f"  Requested hours: {requested_hours}")
+    
+    # Fetch all staff and projects to resolve names to IDs
+    staff_data = await fetch_data_from_backend("staff")
+    project_data = await fetch_data_from_backend("projects")
+    
+    # Resolve requested staff
+    target_staff_ids = []
+    if requested_staff:
+        for requested_name in requested_staff:
+            for staff in staff_data:
+                staff_name = staff.get("name", "").lower()
+                if requested_name.lower() in staff_name or staff_name in requested_name.lower():
+                    target_staff_ids.append(staff["id"])
+                    print(f"  Matched staff: {requested_name} -> {staff['name']} ({staff['id']})")
+                    break
+    
+    # Resolve requested departments
+    if requested_departments:
+        for dept in requested_departments:
+            matching_staff = [s for s in staff_data if dept in s.get("department", "").lower()]
+            for staff in matching_staff:
+                if staff["id"] not in target_staff_ids:
+                    target_staff_ids.append(staff["id"])
+                    print(f"  Matched department staff: {dept} -> {staff['name']} ({staff['id']})")
+    
+    # Resolve requested projects
+    target_project_ids = []
+    if requested_projects:
+        for requested_name in requested_projects:
+            for project in project_data:
+                project_name = project.get("name", "").lower()
+                if requested_name.lower() in project_name or project_name in requested_name.lower():
+                    target_project_ids.append(project["id"])
+                    print(f"  Matched project: {requested_name} -> {project['name']} ({project['id']})")
+                    break
+    
+    print(f"  Final target staff IDs: {target_staff_ids}")
+    print(f"  Final target project IDs: {target_project_ids}")
+    
+    # Create matches only for requested staff and projects
+    matches = []
+    if target_staff_ids and target_project_ids:
+        # Parse hours per project if multiple hour values are specified
+        query = context.get('query', '')
+        project_hours = {}
+        
+        # Try to extract hours per project from patterns like "Merrin for 4 hrs and Project Vanguard for 4 hrs"
+        for project_name in context.get('requested_projects', []):
+            # Look for hours mentioned near this project name
+            pattern = rf"{re.escape(project_name)}\s+for\s+(\d+)\s*(?:hrs?|hours?)"
+            hour_match = re.search(pattern, query, re.IGNORECASE)
+            if hour_match:
+                project_hours[project_name] = int(hour_match.group(1))
+                print(f"  Found specific hours for {project_name}: {project_hours[project_name]}")
+        
+        for staff_id in target_staff_ids:
+            # Find staff name
+            staff_name = next((s["name"] for s in staff_data if s["id"] == staff_id), staff_id)
+            
+            for i, project_id in enumerate(target_project_ids):
+                # Find project name  
+                project_name = next((p["name"] for p in project_data if p["id"] == project_id), project_id)
+                
+                # Use project-specific hours if available, otherwise use default
+                hours_for_project = project_hours.get(project_name, requested_hours)
+                
+                match = {
+                    'staffId': staff_id,
+                    'staffName': staff_name,
+                    'projectId': project_id,
+                    'projectName': project_name,
+                    'assignedHours': hours_for_project,
+                    'date': date
+                }
+                matches.append(match)
+                print(f"  Created match: {staff_name} -> {project_name} ({hours_for_project}h on {date})")
+    
+    elif not requested_staff and not requested_departments:
+        # Fallback: if no specific staff requested, use original logic
+        print("  No specific staff requested, falling back to availability-based matching")
+        for entry in availability:
+            match = {
+                'staffId': entry.get('staffId'),
+                'assignedHours': entry.get('availableHours', 0)
+            }
+            if 'staffName' in entry:
+                match['staffName'] = entry['staffName']
+            if date:
+                match['date'] = date
+            matches.append(match)
+    
+    return {'matches': matches}
+
 @app.post("/orchestrate", response_model=Union[Dict[str, Any], str])
 @app.post("/api/orchestrate", response_model=Union[Dict[str, Any], str])
 async def orchestrate(payload: OrchestrationInput, background_tasks: BackgroundTasks, request: Request):
@@ -196,41 +471,154 @@ async def orchestrate(payload: OrchestrationInput, background_tasks: BackgroundT
         messages_list = raw_payload.get('messages')
         if payload.mode == "ask" and isinstance(messages_list, list) and messages_list:
             user_query = messages_list[-1].get('content', '')
+        elif payload.mode == "ask" and payload.query:
+            user_query = payload.query
+        else:
+            user_query = ""
+            
+        if payload.mode == "ask" and user_query:
             import re
-            # Parse staff name from query
+            
+            # Parse different query types
+            # Pattern 1: "Is [name] on any project on [date]"
             name_match = re.search(r"Is\s+(.+?)\s+on any project", user_query, re.IGNORECASE)
-            # Parse date from query
-            date_match = re.search(r"(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]+)", user_query, re.IGNORECASE)
-            if name_match and date_match:
-                staff_name = name_match.group(1).strip().title()
-                day = int(date_match.group(1))
-                month_str = date_match.group(2).capitalize()
-                try:
-                    # Convert month name to month number
-                    month = datetime.strptime(month_str, "%B").month
-                except ValueError:
-                    month = datetime.now().month
-                year = datetime.now().year
-                date_str = f"{year}-{month:02d}-{day:02d}"
-                # Fetch all staff
-                staff_list = await fetch_data_from_backend("staff")
-                staff = [s for s in staff_list if staff_name.lower() in s.get("name", "").lower()]
-                if not staff:
-                    return {"content": f"I couldn't find staff member '{staff_name}'.", "type": "text"}
-                staff_id = staff[0]["id"]
-                # Fetch all assignments
-                assignments = await fetch_data_from_backend("assignments")
-                user_assignments = [a for a in assignments if a.get("staffId") == staff_id and a.get("date") == date_str]
-                if not user_assignments:
-                    return {"content": f"No, {staff_name} is not assigned to any project on {date_str}.", "type": "text"}
-                project_ids = list({a["projectId"] for a in user_assignments})
-                # Fetch projects
-                projects = await fetch_data_from_backend("projects")
-                project_names = [p.get("name") for p in projects if p.get("id") in project_ids]
-                return {"content": f"Yes, {staff_name} is assigned to {', '.join(project_names)} on {date_str}.", "type": "text"}
+            # Pattern 2: "How many hrs is [name] working on [date]"
+            hours_match = re.search(r"How many hrs is\s+(.+?)\s+working on\s+(.+)", user_query, re.IGNORECASE)
+            
+            # Parse date from query (handles formats like "June 9th", "9th June", "June 9th and 10th")
+            date_match = re.search(r"(\w+)\s+(\d{1,2})(?:st|nd|rd|th)?(?:\s+and\s+(\d{1,2})(?:st|nd|rd|th)?)?", user_query, re.IGNORECASE)
+            
+            try:
+                if hours_match:
+                    # Handle "How many hrs is [name] working on [date]" queries
+                    staff_name = hours_match.group(1).strip().title()
+                    date_str = hours_match.group(2).strip()
+                    
+                    # Parse date more flexibly
+                    dates_to_check = []
+                    if "and" in date_str.lower():
+                        # Handle "June 9th and 10th" format
+                        parts = date_str.split("and")
+                        for part in parts:
+                            part = part.strip()
+                            day_match = re.search(r"(\d{1,2})", part)
+                            month_match = re.search(r"([A-Za-z]+)", part)
+                            if day_match:
+                                day = int(day_match.group(1))
+                                if month_match:
+                                    month_str = month_match.group(1).capitalize()
+                                    try:
+                                        month = datetime.strptime(month_str, "%B").month
+                                    except ValueError:
+                                        month = datetime.now().month
+                                else:
+                                    month = datetime.now().month
+                                year = datetime.now().year
+                                dates_to_check.append(f"{year}-{month:02d}-{day:02d}")
+                    else:
+                        # Handle single date
+                        day_match = re.search(r"(\d{1,2})", date_str)
+                        month_match = re.search(r"([A-Za-z]+)", date_str)
+                        if day_match:
+                            day = int(day_match.group(1))
+                            if month_match:
+                                month_str = month_match.group(1).capitalize()
+                                try:
+                                    month = datetime.strptime(month_str, "%B").month
+                                except ValueError:
+                                    month = datetime.now().month
+                            else:
+                                month = datetime.now().month
+                            year = datetime.now().year
+                            dates_to_check.append(f"{year}-{month:02d}-{day:02d}")
+                    
+                    if not dates_to_check:
+                        return {"content": "I couldn't understand the date format. Please try again.", "type": "text"}
+                    
+                    # Fetch all staff and find the requested person
+                    staff_list = await fetch_data_from_backend("staff")
+                    staff = None
+                    for s in staff_list:
+                        if staff_name.lower() in s.get("name", "").lower() or s.get("name", "").lower() in staff_name.lower():
+                            staff = s
+                            break
+                    
+                    if not staff:
+                        return {"content": f"I couldn't find staff member '{staff_name}'.", "type": "text"}
+                    
+                    staff_id = staff["id"]
+                    
+                    # Fetch assignments for the dates
+                    total_hours = 0
+                    date_details = []
+                    
+                    assignments = await fetch_data_from_backend("assignments")
+                    
+                    for date_str in dates_to_check:
+                        day_assignments = [a for a in assignments if a.get("staffId") == staff_id and a.get("date") == date_str]
+                        day_hours = sum(a.get("hours", 0) for a in day_assignments)
+                        total_hours += day_hours
+                        
+                        if day_hours > 0:
+                            # Get project names
+                            project_ids = list({a["projectId"] for a in day_assignments})
+                            projects = await fetch_data_from_backend("projects")
+                            project_names = [p.get("name") for p in projects if p.get("id") in project_ids]
+                            date_details.append(f"{day_hours} hours on {date_str} ({', '.join(project_names)})")
+                        else:
+                            date_details.append(f"0 hours on {date_str}")
+                    
+                    if total_hours == 0:
+                        return {"content": f"{staff['name']} is not working any hours on {', '.join(dates_to_check)}.", "type": "text"}
+                    else:
+                        detail_str = "; ".join(date_details)
+                        return {"content": f"{staff['name']} is working {total_hours} total hours. Details: {detail_str}", "type": "text"}
+                
+                elif name_match and date_match:
+                    # Handle "Is [name] on any project on [date]" queries  
+                    staff_name = name_match.group(1).strip().title()
+                    day = int(date_match.group(2))
+                    month_str = date_match.group(1).capitalize()
+                    try:
+                        month = datetime.strptime(month_str, "%B").month
+                    except ValueError:
+                        month = datetime.now().month
+                    year = datetime.now().year
+                    date_str = f"{year}-{month:02d}-{day:02d}"
+                    
+                    # Fetch all staff
+                    staff_list = await fetch_data_from_backend("staff")
+                    staff = None
+                    for s in staff_list:
+                        if staff_name.lower() in s.get("name", "").lower() or s.get("name", "").lower() in staff_name.lower():
+                            staff = s
+                            break
+                    
+                    if not staff:
+                        return {"content": f"I couldn't find staff member '{staff_name}'.", "type": "text"}
+                    
+                    staff_id = staff["id"]
+                    
+                    # Fetch all assignments
+                    assignments = await fetch_data_from_backend("assignments")
+                    user_assignments = [a for a in assignments if a.get("staffId") == staff_id and a.get("date") == date_str]
+                    
+                    if not user_assignments:
+                        return {"content": f"No, {staff['name']} is not assigned to any project on {date_str}.", "type": "text"}
+                    
+                    project_ids = list({a["projectId"] for a in user_assignments})
+                    projects = await fetch_data_from_backend("projects")
+                    project_names = [p.get("name") for p in projects if p.get("id") in project_ids]
+                    total_hours = sum(a.get("hours", 0) for a in user_assignments)
+                    
+                    return {"content": f"Yes, {staff['name']} is assigned to {', '.join(project_names)} on {date_str} for {total_hours} hours total.", "type": "text"}
+                
+            except Exception as e:
+                print(f"Error parsing ask query: {e}")
+                return {"content": "I had trouble understanding your question. Could you please rephrase it?", "type": "text"}
         
         # Determine whether to use CrewAI or stub orchestrator (default to CrewAI)
-        use_crew = (payload.mode == "ask") or (os.getenv("USE_CREW", "1") == "1")
+        use_crew = (payload.mode == "ask")  # Only use CrewAI for ask mode, not command mode
         if use_crew:
             # Load CrewAI configs and run pipeline
             from crewai import Agent, Crew, Process, Task
@@ -271,49 +659,40 @@ async def orchestrate(payload: OrchestrationInput, background_tasks: BackgroundT
             # In command-mode, strip backstories to reduce prompt size and token usage
             if payload.mode == "command":
                 for cfg in filtered_agent_configs.values():
-                    cfg["backstory"] = ""
-                    # Optionally shorten the goal as well if needed
-                    # cfg["goal"] = cfg.get("goal", "").split('.')[0]
+                    cfg["backstory"] = ""          # strip bulky text
+                    cfg["goal"]      = ""          # ditto
+                    # Ultra-short prompt to save tokens
+                    cfg["prompt"] = "Use tools. Return: {\"resolvedMatches\":[{\"staffId\":\"\",\"projectId\":\"\",\"date\":\"\",\"hours\":0}]}"
+                    # FORCE gpt-4o-mini to override any defaults
+                    cfg["llm"] = {"provider": "openai", "model": "gpt-4o-mini", "temperature": 0.3}
             
             # Otherwise, fall back to Crew for other flows
             # Instantiate CrewAI pipeline as before
             try:
                 agents_list = []
                 for agent_name, agent_config in filtered_agent_configs.items():
-                    # Make sure agent_config is a dictionary and has all required fields
-                    if isinstance(agent_config, dict):
-                        # Add role and name if not present
-                        if "role" not in agent_config:
-                            agent_config["role"] = agent_name
-                        if "name" not in agent_config:
-                            agent_config["name"] = agent_name
-                        
-                        # Get tools for this agent
-                        agent_tools = tool_registry.get_tools_for_agent(agent_name)
-                        try:
-                            # Instantiate agent without passing tools or llm_config
-                            agent_instance = Agent(
-                                role=agent_config.get("role", agent_name),
-                                goal=agent_config.get("goal", ""),
-                                backstory=agent_config.get("backstory", ""),
-                                # Only show verbose chain-of-thought in ask mode
-                                verbose=(payload.mode == "ask")
-                            )
-                            # Assign tools post-instantiation
-                            agent_instance.tools = agent_tools
-                            agents_list.append(agent_instance)
-                            print(f"Created agent {agent_name} with {len(agent_tools)} tools")
-                        except Exception as e:
-                            print(f"Error creating agent {agent_name}: {e}")
-                            # Create a minimal agent as fallback without tools
-                            agent_instance = Agent(
-                                role=agent_name,
-                                goal=agent_config.get("goal", ""),
-                                backstory=agent_config.get("backstory", ""),
-                                verbose=(payload.mode == "ask")
-                            )
-                            agent_instance.tools = agent_tools
-                            agents_list.append(agent_instance)
+                    # --- shrink prompt noise ---
+                    agent_config["backstory"] = ""                          # cut fluff
+                    agent_config["goal"]      = ""                          # cut fluff
+                    agent_config.setdefault("prompt", "Use tools. Return JSON.")  # minimal default
+
+                    # -------- tools for this agent ----------
+                    agent_tools = tool_registry.get_tools_for_agent(agent_name)
+
+                    # -------- create the Agent --------------
+                    agent_instance = Agent(
+                        role       = agent_name,
+
+                        # ── NEW ── (minimal but satisfies validation)
+                        goal      = agent_config.get("goal", "Book staff"),
+                        backstory = agent_config.get("backstory", "Agent"),
+
+                        prompt     = agent_config["prompt"],         # the compressed prompt we kept
+                        tools      = agent_tools,
+                        llm_config = {"provider": "openai", "model": "gpt-4o-mini", "temperature": 0.3},  # FORCE gpt-4o-mini
+                        verbose    = False
+                    )
+                    agents_list.append(agent_instance)
     
                 # Build tasks list: use the original query as description if present, otherwise default
                 tasks_list = [
@@ -331,7 +710,7 @@ async def orchestrate(payload: OrchestrationInput, background_tasks: BackgroundT
                     agents=agents_list,
                     tasks=tasks_list,
                     process=Process.sequential,
-                    verbose=True
+                    verbose=False
                 )
                 
                 # Add some additional context for command flows with explicit IDs
@@ -386,14 +765,16 @@ async def orchestrate(payload: OrchestrationInput, background_tasks: BackgroundT
                         result = {"response": result}
                         print(f"Wrapped string result in dict: {result}")
             
-                # For scheduling tasks, only accept dicts containing resolvedMatches
-                if payload.mode == "command":
-                    # If we got valid resolvedMatches, schedule them
-                    if isinstance(result, dict) and "resolvedMatches" in result:
-                        background_tasks.add_task(process_assignments, result, payload)
-                    else:
-                        # Trigger fallback to Node directBooking by returning an error status
-                        raise HTTPException(status_code=500, detail="CrewAI could not resolve bookings; falling back to direct scheduling logic")
+                # Process assignments in the background for command mode
+                print(f"Checking background task condition:")
+                print(f"  payload.mode: {payload.mode}")
+                print(f"  result.get('resolvedMatches'): {bool(result.get('resolvedMatches'))}")
+                print(f"  result.get('matches'): {bool(result.get('matches'))}")
+                if payload.mode == "command" and (result.get("resolvedMatches") or result.get("matches")):
+                    print("  -> Triggering background task for assignment creation")
+                    background_tasks.add_task(process_assignments, result, payload)
+                else:
+                    print("  -> Background task condition not met")
             
                 # Save conversation turn into memory for this session
                 if isinstance(result, dict):
@@ -430,7 +811,21 @@ async def orchestrate(payload: OrchestrationInput, background_tasks: BackgroundT
                 raise HTTPException(status_code=500, detail=f"CrewAI execution error: {str(crew_error)}")
         else:
             # Fallback to stub orchestrator
-            result = await orchestrator.run({"date": payload.date, "query": payload.query})
+            # Parse command-mode booking requests properly
+            # Enhanced stub orchestrator that can handle specific staff/department requests
+            result = await enhanced_stub_orchestrator(payload)
+            
+            # Process assignments in the background for command mode
+            print(f"Checking background task condition:")
+            print(f"  payload.mode: {payload.mode}")
+            print(f"  result.get('resolvedMatches'): {bool(result.get('resolvedMatches'))}")
+            print(f"  result.get('matches'): {bool(result.get('matches'))}")
+            if payload.mode == "command" and (result.get("resolvedMatches") or result.get("matches")):
+                print("  -> Triggering background task for assignment creation")
+                background_tasks.add_task(process_assignments, result, payload)
+            else:
+                print("  -> Background task condition not met")
+            
             # Validate pipeline output
             validate_pipeline_output(result)
             return result
@@ -463,108 +858,81 @@ async def weekly_reminder_endpoint(background_tasks: BackgroundTasks, request: R
     payload = OrchestrationInput(mode="cron")
     return await orchestrate(payload, background_tasks, request)
 
+@app.post("/process_pipeline", response_model=Dict[str, Any])
+@app.post("/api/process_pipeline", response_model=Dict[str, Any])
+async def process_pipeline_endpoint(payload: OrchestrationInput):
+    """
+    New endpoint for direct Scheduler agent pipeline.
+    """
+    try:
+        agent = get_agent("Scheduler")
+        result = agent(payload.query)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"CrewAI execution error: {e}") from e
+
+    # ➊ tolerate JSON returned as a string
+    if isinstance(result, str):
+        try:
+            result = json.loads(result)
+        except json.JSONDecodeError:
+            # ➋ if not valid JSON, wrap it instead of raising
+            result = {"response": result}
+
+    if not isinstance(result, dict) or "resolvedMatches" not in result:
+        raise HTTPException(status_code=500, detail="CrewAI output missing 'resolvedMatches'")
+
+    return {"status": "ok", "schedule": result["resolvedMatches"]}
+
 async def process_assignments(result, payload):
     """Process the scheduling results and create assignments in the database"""
     try:
-        # Extract the matched assignments
+        print(f"=== PROCESS_ASSIGNMENTS CALLED ===")
+        print(f"Result keys: {list(result.keys()) if isinstance(result, dict) else 'Not a dict'}")
+        print(f"Payload mode: {getattr(payload, 'mode', 'No mode')}")
+        
+        # Extract the matched assignments - handle both formats
         matches = result.get("resolvedMatches", [])
+        if not matches:
+            # Fallback to original stub orchestrator format
+            matches = result.get("matches", [])
+        
+        print(f"Found {len(matches)} matches to process")
+        
         if not matches:
             print("No matches to process")
             return
 
-        # Handle parsed data from CommandParser if available
-        if "parsed" in result:
-            parsed = result["parsed"]
-            
-            # Look up staff IDs if staffNames provided
-            if "staffNames" in parsed and parsed["staffNames"]:
-                staff_data = await fetch_data_from_backend("staff")
-                staff_map = {s["name"].lower(): s["id"] for s in staff_data}
-                
-                # Try to match each staff name to an ID
-                staff_ids = []
-                for name in parsed["staffNames"]:
-                    found = False
-                    name_lower = name.lower()
-                    for staff_name, staff_id in staff_map.items():
-                        if name_lower in staff_name or staff_name in name_lower:
-                            staff_ids.append(staff_id)
-                            found = True
-                            break
-                    if not found and staff_map:
-                        print(f"Warning: Could not find staff ID for '{name}'")
-                
-                if staff_ids:
-                    # Set staffIds for downstream use
-                    result["staffIds"] = staff_ids
-                    
-            # Look up project IDs if projectNames provided
-            if "projectNames" in parsed and parsed["projectNames"]:
-                project_data = await fetch_data_from_backend("projects")
-                project_map = {p["name"].lower(): p["id"] for p in project_data}
-                
-                # Try to match each project name to an ID
-                project_ids = []
-                for name in parsed["projectNames"]:
-                    found = False
-                    name_lower = name.lower()
-                    for project_name, project_id in project_map.items():
-                        if name_lower in project_name or project_name in name_lower:
-                            project_ids.append(project_id)
-                            found = True
-                            break
-                    if not found and project_map:
-                        print(f"Warning: Could not find project ID for '{name}'")
-                        
-                if project_ids:
-                    # Set projectIds for downstream use
-                    result["projectIds"] = project_ids
-            
-            # Set date from parsed data if available
-            if "date" in parsed and parsed["date"]:
-                result["date"] = parsed["date"]
-                
-            # Set hours from parsed data if available
-            if "hours" in parsed and parsed["hours"]:
-                result["hours"] = parsed["hours"]
-
-        # Determine projectIds and date fallback
-        project_ids = []
-        if "projectIds" in result:
-            project_ids = result["projectIds"]
-        elif payload and getattr(payload, "projectIds", None):
-            project_ids = payload.projectIds
-
-        assignment_date = None
-        if "date" in result:
-            assignment_date = result["date"]
-        elif payload and getattr(payload, "date", None):
-            assignment_date = payload.date
-        else:
-            assignment_date = datetime.now().strftime("%Y-%m-%d")
-
-        if not project_ids:
-            print("No project IDs found. Skipping DB write.")
-            return
-
-        # Use first projectId for now (future: expand to multi-project booking)
-        project_id = project_ids[0]
-
-        # Create an assignment for each match
+        # Create assignments directly from the resolved matches
+        assignments_created = 0
         for match in matches:
-            if match.get("assignedHours", 0) <= 0:
+            assigned_hours = match.get("assignedHours", 0)
+            staff_id = match.get("staffId")
+            project_id = match.get("projectId") 
+            date = match.get("date")
+            
+            print(f"Processing match: staff={staff_id[:8] if staff_id else None}..., project={project_id[:8] if project_id else None}..., date={date}, hours={assigned_hours}")
+            
+            if not staff_id or not project_id or not date or assigned_hours <= 0:
+                print(f"Skipping invalid match: {match}")
                 continue
 
             assignment_data = {
-                "staffId": match["staffId"],
+                "staffId": staff_id,
                 "projectId": project_id,
-                "date": assignment_date,
-                "hours": match["assignedHours"]
+                "date": date,
+                "hours": assigned_hours
             }
-            # Create the assignment
-            await create_assignments(assignment_data)
+            
+            print(f"Creating assignment: {assignment_data}")
+            try:
+                # Create the assignment
+                response = await create_assignments(assignment_data)
+                print(f"Assignment creation response: {response}")
+                assignments_created += 1
+            except Exception as create_error:
+                print(f"Error creating individual assignment: {create_error}")
         
-        print(f"Successfully processed {len(matches)} assignments")
+        print(f"Successfully created {assignments_created} assignments from {len(matches)} matches")
     except Exception as e:
         print(f"Error processing assignments: {e}")
         traceback.print_exc()

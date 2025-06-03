@@ -96,8 +96,5 @@
       "last 1 firefox version",
       "last 1 safari version"
     ]
-  },
-  "prisma": {
-    "seed": "node prisma/seed.js"
   }
 }

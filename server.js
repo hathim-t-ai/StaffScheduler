@@ -23,6 +23,11 @@ const path    = require('path');
 const supabase = require('./supabaseClient');
 const useCrew = process.env.USE_CREW === '1';
 
+// Utility: split "a,b,c" into ["a","b","c"]   (trims spaces, ignores empties)
+const parseCsvNames = (value = '') =>
+  value.split(',').map(s => s.trim()).filter(Boolean);
+
+
 const {
   getStaffAssignments,
   getAllStaff,
@@ -57,6 +62,10 @@ const gradeRates = process.env.GRADE_RATES_JSON
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+// Helper to parse comma-separated names (duplicate; commented out)
+// const parseCsvNames = value =>
+//   value.split(',').map(s => s.trim()).filter(Boolean);
 
 // Stub staff & project endpoints in test environment to satisfy integration tests
 if (process.env.NODE_ENV === 'test') {
@@ -234,14 +243,30 @@ const serviceRoleHeaders = {
 };
 
 // Staff endpoints
-app.get('/api/staff', async (_, res) => {
-  const { data, error } = await supabase
-    .from('staff')
-    .select('*');
-
-  if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
-});
+app.get('/api/staff', async (req, res) => {
+  try {
+      // ➊ optional ?name=… or ?name=a,b,c
+      const nameParam = (req.query.name || '').toString().trim();
+      let query       = supabase.from('staff').select('*');
+  
+      if (nameParam) {                               // nothing changes if param absent
+        const names = nameParam.split(',')
+                               .map(s => s.trim())
+                               .filter(Boolean);
+  
+        query = names.length === 1
+          ? query.ilike('name', `%${names[0]}%`)     // substring, case-insensitive
+          : query.in('name', names);                 // exact list match
+      }
+  
+      const { data, error } = await query;
+      if (error)               return res.status(500).json({ error: error.message });
+      if (!data || !data.length) return res.status(404).json([]);    // important for Crew-AI
+      res.json(data);
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
 
 app.post('/api/staff', async (req, res) => {
   // Extract known fields and bundle any custom fields into metadata
@@ -359,28 +384,51 @@ app.post('/api/projects/bulk', async (req, res) => {
   }
 });
 
-// Project endpoints
-app.get('/api/projects', async (_ ,res) => {
-  // Fetch raw projects
-  const { data, error } = await supabase.from('projects').select('*');
-  if (error) return res.status(500).json({ error: error.message });
-  // Convert snake_case fields to camelCase for client
-  const mapped = data.map(p => ({
-    id: p.id,
-    name: p.name,
-    description: p.description,
-    partnerName: p.partner_name,
-    teamLead: p.team_lead,
-    budget: p.budget,
-    createdAt: p.created_at,
-    updatedAt: p.updated_at,
-    ...Object.fromEntries(
-      Object.entries(p).filter(([key]) => ![
-        'id','name','description','partner_name','team_lead','budget','created_at','updated_at'
-      ].includes(key))
-    )
-  }));
-  res.json(mapped);
+// -----------------------  Project endpoints  -----------------------
+app.get('/api/projects', async (req, res) => {
+  try {
+    // optional ?name=Merrin or ?name=Merrin,Vanguard
+    const names = parseCsvNames(req.query.name ?? '');
+
+    // base query: all projects
+    let query = supabase.from('projects').select('*');
+
+    // if ?name= supplied, switch to filtered lookup
+    if (names.length) {
+      query = names.length === 1
+        ? query.ilike('name', `%${names[0]}%`)   // substring, case-insensitive
+        : query.in('name', names);               // exact match for list
+    }
+
+    const { data, error } = await query;
+    if (error) return res.status(500).json({ error: error.message });
+
+    // Crew-AI relies on 404 when nothing matches
+    if (!data || !data.length) return res.status(404).json([]);
+
+    // camel-case mapping (same as before)
+    const mapped = data.map(p => ({
+      id:          p.id,
+      name:        p.name,
+      description: p.description,
+      partnerName: p.partner_name,
+      teamLead:    p.team_lead,
+      budget:      p.budget,
+      createdAt:   p.created_at,
+      updatedAt:   p.updated_at,
+      ...Object.fromEntries(
+        Object.entries(p).filter(([key]) => ![
+          'id', 'name', 'description',
+          'partner_name', 'team_lead', 'budget',
+          'created_at',  'updated_at'
+        ].includes(key))
+      )
+    }));
+
+    res.json(mapped);        // ✅ single unified return
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 app.post('/api/projects', async (req, res) => {
