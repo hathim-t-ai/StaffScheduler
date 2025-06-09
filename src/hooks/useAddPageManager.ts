@@ -1,16 +1,10 @@
 import { useState, useEffect } from 'react';
+
+import axios from 'axios';
 import { useSelector, useDispatch } from 'react-redux';
-import { RootState } from '../store';
+
 import { ColumnDefinition } from '../components/DataTable';
-import { 
-  StaffMember, 
-  addStaffMember, 
-  addCustomField as addStaffCustomField,
-  removeCustomField as removeStaffCustomField,
-  deleteStaffMember,
-  setStaffMembers,
-  updateStaffMember
-} from '../store/slices/staffSlice';
+import { RootState } from '../store';
 import {
   Project,
   addProject,
@@ -20,7 +14,15 @@ import {
   setProjects,
   updateProject
 } from '../store/slices/projectSlice';
-import axios from 'axios';
+import { 
+  StaffMember, 
+  addStaffMember, 
+  addCustomField as addStaffCustomField,
+  removeCustomField as removeStaffCustomField,
+  deleteStaffMember,
+  setStaffMembers,
+  updateStaffMember
+} from '../store/slices/staffSlice';
 
 export type SnackbarState = {
   open: boolean;
@@ -123,9 +125,19 @@ export const useAddPageManager = () => {
       const res = await axios.post('/api/staff', newStaffMember);
       dispatch(addStaffMember(res.data));
       setSnackbar({ open: true, message: 'Staff member added successfully', severity: 'success' });
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error adding staff', err);
-      setSnackbar({ open: true, message: 'Failed to add staff member', severity: 'error' });
+      let errorMessage = 'Failed to add staff member';
+      
+      if (err.response?.status === 409 && err.response?.data?.error === 'Duplicate staff member') {
+        errorMessage = err.response.data.message || 'This staff member already exists';
+      } else if (err.response?.data?.error === 'Validation failed' && err.response?.data?.details) {
+        errorMessage = `Validation failed: ${err.response.data.details.join(', ')}`;
+      } else if (err.response?.data?.error) {
+        errorMessage = err.response.data.error;
+      }
+      
+      setSnackbar({ open: true, message: errorMessage, severity: 'error' });
     }
   };
 
@@ -144,14 +156,36 @@ export const useAddPageManager = () => {
         country: ns.country || '',
         skills: Array.isArray(ns.skills) ? ns.skills.join(',') : (ns.skills || '')
       }));
-      await axios.post('/api/staff/bulk', rows);
+      const response = await axios.post('/api/staff/bulk', rows);
+      
+      // Handle the new response format with duplicate detection
+      const data = response.data;
+      
       // Reload full staff list
       const res = await axios.get('/api/staff');
       dispatch(setStaffMembers(res.data));
-      setSnackbar({ open: true, message: `${newStaffMembers.length} staff imported successfully`, severity: 'success' });
-    } catch (err) {
+      
+      // Create detailed success message
+      let message = `Successfully imported ${data.summary.inserted} staff member${data.summary.inserted !== 1 ? 's' : ''}`;
+      let severity: 'success' | 'warning' = 'success';
+      
+      if (data.summary.duplicatesSkipped > 0) {
+        message += `, skipped ${data.summary.duplicatesSkipped} duplicate${data.summary.duplicatesSkipped !== 1 ? 's' : ''}`;
+        severity = 'warning';
+      }
+      
+      setSnackbar({ open: true, message, severity });
+    } catch (err: any) {
       console.error('Error importing staff', err);
-      setSnackbar({ open: true, message: 'Failed to import staff members', severity: 'error' });
+      let errorMessage = 'Failed to import staff members';
+      
+      if (err.response?.data?.error === 'Validation failed' && err.response?.data?.details) {
+        errorMessage = `Import failed: Validation errors found`;
+      } else if (err.response?.data?.error) {
+        errorMessage = err.response.data.error;
+      }
+      
+      setSnackbar({ open: true, message: errorMessage, severity: 'error' });
     }
   };
 
@@ -196,9 +230,19 @@ export const useAddPageManager = () => {
       const res = await axios.post('/api/projects', newProject);
       dispatch(addProject(res.data));
       setSnackbar({ open: true, message: 'Project added successfully', severity: 'success' });
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error adding project', err);
-      setSnackbar({ open: true, message: 'Failed to add project', severity: 'error' });
+      let errorMessage = 'Failed to add project';
+      
+      if (err.response?.status === 409 && err.response?.data?.error === 'Duplicate project') {
+        errorMessage = err.response.data.message || 'This project already exists';
+      } else if (err.response?.data?.error === 'Validation failed' && err.response?.data?.details) {
+        errorMessage = `Validation failed: ${err.response.data.details.join(', ')}`;
+      } else if (err.response?.data?.error) {
+        errorMessage = err.response.data.error;
+      }
+      
+      setSnackbar({ open: true, message: errorMessage, severity: 'error' });
     }
   };
 
@@ -215,14 +259,36 @@ export const useAddPageManager = () => {
         teamLead: np.teamLead || '',
         budget: np.budget || 0
       }));
-      await axios.post('/api/projects/bulk', rows);
+      const response = await axios.post('/api/projects/bulk', rows);
+      
+      // Handle the new response format with duplicate detection
+      const data = response.data;
+      
       // Reload full projects list
       const res = await axios.get('/api/projects');
       dispatch(setProjects(res.data));
-      setSnackbar({ open: true, message: `${newProjects.length} projects imported successfully`, severity: 'success' });
-    } catch (err) {
+      
+      // Create detailed success message
+      let message = `Successfully imported ${data.summary.inserted} project${data.summary.inserted !== 1 ? 's' : ''}`;
+      let severity: 'success' | 'warning' = 'success';
+      
+      if (data.summary.duplicatesSkipped > 0) {
+        message += `, skipped ${data.summary.duplicatesSkipped} duplicate${data.summary.duplicatesSkipped !== 1 ? 's' : ''}`;
+        severity = 'warning';
+      }
+      
+      setSnackbar({ open: true, message, severity });
+    } catch (err: any) {
       console.error('Error importing projects', err);
-      setSnackbar({ open: true, message: 'Failed to import projects', severity: 'error' });
+      let errorMessage = 'Failed to import projects';
+      
+      if (err.response?.data?.error === 'Validation failed' && err.response?.data?.details) {
+        errorMessage = `Import failed: Validation errors found`;
+      } else if (err.response?.data?.error) {
+        errorMessage = err.response.data.error;
+      }
+      
+      setSnackbar({ open: true, message: errorMessage, severity: 'error' });
     }
   };
 
@@ -478,9 +544,19 @@ export const useAddPageManager = () => {
       const res = await axios.put(`/api/staff/${updated.id}`, updated);
       dispatch(updateStaffMember(res.data));
       setSnackbar({ open: true, message: 'Staff member updated successfully', severity: 'success' });
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error updating staff', err);
-      setSnackbar({ open: true, message: 'Failed to update staff member', severity: 'error' });
+      let errorMessage = 'Failed to update staff member';
+      
+      if (err.response?.status === 409 && err.response?.data?.error === 'Duplicate staff member') {
+        errorMessage = err.response.data.message || 'Another staff member with these details already exists';
+      } else if (err.response?.data?.error === 'Validation failed' && err.response?.data?.details) {
+        errorMessage = `Validation failed: ${err.response.data.details.join(', ')}`;
+      } else if (err.response?.data?.error) {
+        errorMessage = err.response.data.error;
+      }
+      
+      setSnackbar({ open: true, message: errorMessage, severity: 'error' });
     }
     setEditStaffMember(null);
   };
@@ -506,9 +582,19 @@ export const useAddPageManager = () => {
       const res = await axios.put(`/api/projects/${updated.id}`, updated);
       dispatch(updateProject(res.data));
       setSnackbar({ open: true, message: 'Project updated successfully', severity: 'success' });
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error updating project', err);
-      setSnackbar({ open: true, message: 'Failed to update project', severity: 'error' });
+      let errorMessage = 'Failed to update project';
+      
+      if (err.response?.status === 409 && err.response?.data?.error === 'Duplicate project') {
+        errorMessage = err.response.data.message || 'Another project with these details already exists';
+      } else if (err.response?.data?.error === 'Validation failed' && err.response?.data?.details) {
+        errorMessage = `Validation failed: ${err.response.data.details.join(', ')}`;
+      } else if (err.response?.data?.error) {
+        errorMessage = err.response.data.error;
+      }
+      
+      setSnackbar({ open: true, message: errorMessage, severity: 'error' });
     }
     setEditProject(null);
   };

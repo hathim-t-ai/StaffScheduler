@@ -1,7 +1,12 @@
 import { useState } from 'react';
+
+import axios from 'axios';
 import { useSelector, useDispatch } from 'react-redux';
 import { v4 as uuidv4 } from 'uuid';
+
+import { ContextMenuPosition, DragItem, NotificationState, StaffHours } from '../components/schedule/types';
 import { RootState } from '../store';
+import { Project } from '../store/slices/projectSlice';
 import {
   ScheduleTask,
   setTasks,
@@ -9,10 +14,7 @@ import {
   navigateWeek
 } from '../store/slices/scheduleSlice';
 import { StaffMember } from '../store/slices/staffSlice';
-import { Project } from '../store/slices/projectSlice';
-import { ContextMenuPosition, DragItem, NotificationState, StaffHours } from '../components/schedule/types';
 import { getDatesForCurrentWeek, formatDateISO } from '../utils/ScheduleUtils';
-import axios from 'axios';
 
 export const useScheduleManager = (staffMembers: StaffMember[], projects: Project[]) => {
   const dispatch = useDispatch();

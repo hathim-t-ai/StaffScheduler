@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { Box, List, ListItemButton, ListItemIcon, ListItemText } from '@mui/material';
-import PersonAddIcon from '@mui/icons-material/PersonAdd';
+
 import BusinessCenterIcon from '@mui/icons-material/BusinessCenter';
+import PersonAddIcon from '@mui/icons-material/PersonAdd';
+import { Box, List, ListItemButton, ListItemIcon, ListItemText } from '@mui/material';
 
 interface SidebarProps {
   /** Currently selected tab index: 0=People, 1=Projects */

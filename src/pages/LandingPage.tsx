@@ -1,5 +1,10 @@
 import React from 'react';
-import { useNavigate } from 'react-router-dom';
+
+import BarChartIcon from '@mui/icons-material/BarChart';
+import ChatIcon from '@mui/icons-material/Chat';
+import EventIcon from '@mui/icons-material/Event';
+import PersonAddIcon from '@mui/icons-material/PersonAdd';
+import SettingsIcon from '@mui/icons-material/Settings';
 import { 
   Container, 
   Grid, 
@@ -10,11 +15,7 @@ import {
   Box,
   useTheme
 } from '@mui/material';
-import PersonAddIcon from '@mui/icons-material/PersonAdd';
-import EventIcon from '@mui/icons-material/Event';
-import BarChartIcon from '@mui/icons-material/BarChart';
-import SettingsIcon from '@mui/icons-material/Settings';
-import ChatIcon from '@mui/icons-material/Chat';
+import { useNavigate } from 'react-router-dom';
 
 const LandingPage: React.FC = () => {
   const navigate = useNavigate();
@@ -95,7 +96,7 @@ const LandingPage: React.FC = () => {
           flexGrow: 1
         }}
       >
-        <Typography variant="h1" component="h1" gutterBottom align="center" sx={{ mb: 6, color: theme.palette.primary.main }}>
+        <Typography variant="h1" component="h1" gutterBottom align="center" sx={{ mb: 6, color: theme.palette.common.white }}>
           Staff Scheduler
         </Typography>
         
@@ -104,15 +105,36 @@ const LandingPage: React.FC = () => {
             <Grid item xs={12} sm={6} md={4} key={index}>
               <Card 
                 sx={{ 
-                  backgroundColor: theme.palette.background.paper,
+                  backgroundColor: '#ffffff',
                   height: '100%', 
                   display: 'flex', 
                   flexDirection: 'column',
+                  position: 'relative',
+                  overflow: 'visible',
                   transition: 'transform 0.3s, box-shadow 0.3s',
+                  borderRadius: 2,
                   '&:hover': {
                     transform: 'translateY(-4px)',
                     boxShadow: 6,
-                    cursor: 'pointer'
+                    cursor: 'pointer',
+                    '&::before': {
+                      opacity: 1,
+                      transform: 'scaleX(1)',
+                    }
+                  },
+                  '&::before': {
+                    content: '""',
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    height: 4,
+                    backgroundColor: theme.palette.primary.main,
+                    borderRadius: '8px 8px 0 0',
+                    opacity: 0,
+                    transform: 'scaleX(0)',
+                    transformOrigin: 'left center',
+                    transition: 'opacity 0.3s, transform 0.3s',
                   }
                 }} 
                 onClick={() => navigate(item.path)}
@@ -121,10 +143,10 @@ const LandingPage: React.FC = () => {
                   <Box sx={{ mb: 2 }}>
                     {item.icon}
                   </Box>
-                  <Typography variant="h2" component="h2" gutterBottom sx={{ color: theme.palette.common.white }}>
+                  <Typography variant="h2" component="h2" gutterBottom sx={{ color: theme.palette.text.primary }}>
                     {item.title}
                   </Typography>
-                  <Typography variant="body1" sx={{ color: theme.palette.common.white }}>
+                  <Typography variant="body1" sx={{ color: theme.palette.text.primary, opacity: 0.8 }}>
                     {item.description}
                   </Typography>
                 </CardContent>

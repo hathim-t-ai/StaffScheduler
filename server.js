@@ -242,6 +242,132 @@ const serviceRoleHeaders = {
   }
 };
 
+// Add input validation middleware and helper functions
+const validateStaffInput = (data) => {
+  const errors = [];
+  
+  // Validate required fields
+  if (!data.name || typeof data.name !== 'string' || data.name.trim().length === 0) {
+    errors.push('Name is required and must be a non-empty string');
+  }
+  
+  // Validate name format (letters, spaces, hyphens, apostrophes only)
+  if (data.name && !/^[a-zA-Z\s\-']+$/.test(data.name.trim())) {
+    errors.push('Name can only contain letters, spaces, hyphens, and apostrophes');
+  }
+  
+  // Validate name length
+  if (data.name && data.name.trim().length > 100) {
+    errors.push('Name must be less than 100 characters');
+  }
+  
+  // Validate optional fields
+  const stringFields = ['grade', 'department', 'role', 'city', 'country', 'email'];
+  stringFields.forEach(field => {
+    if (data[field] && (typeof data[field] !== 'string' || data[field].length > 255)) {
+      errors.push(`${field} must be a string with less than 255 characters`);
+    }
+  });
+  
+  // Validate email format if provided
+  if (data.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email)) {
+    errors.push('Email must be a valid email address');
+  }
+  
+  // Validate skills
+  if (data.skills && typeof data.skills !== 'string' && !Array.isArray(data.skills)) {
+    errors.push('Skills must be a string or array of strings');
+  }
+  
+  return errors;
+};
+
+const validateProjectInput = (data) => {
+  const errors = [];
+  
+  // Validate required fields
+  if (!data.name || typeof data.name !== 'string' || data.name.trim().length === 0) {
+    errors.push('Project name is required and must be a non-empty string');
+  }
+  
+  // Validate name format (letters, numbers, spaces, hyphens only)
+  if (data.name && !/^[a-zA-Z0-9\s\-]+$/.test(data.name.trim())) {
+    errors.push('Project name can only contain letters, numbers, spaces, and hyphens');
+  }
+  
+  // Validate name length
+  if (data.name && data.name.trim().length > 100) {
+    errors.push('Project name must be less than 100 characters');
+  }
+  
+  // Validate optional fields
+  const stringFields = ['description', 'partnerName', 'partner_name', 'teamLead', 'team_lead'];
+  stringFields.forEach(field => {
+    if (data[field] && (typeof data[field] !== 'string' || data[field].length > 500)) {
+      errors.push(`${field} must be a string with less than 500 characters`);
+    }
+  });
+  
+  // Validate budget
+  if (data.budget !== undefined && data.budget !== null) {
+    const budget = parseFloat(data.budget);
+    if (isNaN(budget) || budget < 0) {
+      errors.push('Budget must be a positive number');
+    }
+    if (budget > 10000000) { // 10 million max
+      errors.push('Budget cannot exceed 10,000,000');
+    }
+  }
+  
+  return errors;
+};
+
+const sanitizeInput = (data) => {
+  const sanitized = {};
+  Object.keys(data).forEach(key => {
+    if (typeof data[key] === 'string') {
+      // Trim whitespace and remove any potential HTML/script tags
+      sanitized[key] = data[key].trim().replace(/<[^>]*>/g, '');
+    } else {
+      sanitized[key] = data[key];
+    }
+  });
+  return sanitized;
+};
+
+// Helper function to check for duplicate staff
+const checkStaffDuplicate = async (name, grade, department, excludeId = null) => {
+  let query = supabase
+    .from('staff')
+    .select('id, name, grade, department')
+    .eq('name', name);
+  
+  if (grade) query = query.eq('grade', grade);
+  if (department) query = query.eq('department', department);
+  if (excludeId) query = query.neq('id', excludeId);
+  
+  const { data, error } = await query;
+  if (error) throw error;
+  
+  return data && data.length > 0 ? data[0] : null;
+};
+
+// Helper function to check for duplicate projects
+const checkProjectDuplicate = async (name, partnerName, excludeId = null) => {
+  let query = supabase
+    .from('projects')
+    .select('id, name, partner_name')
+    .eq('name', name);
+  
+  if (partnerName) query = query.eq('partner_name', partnerName);
+  if (excludeId) query = query.neq('id', excludeId);
+  
+  const { data, error } = await query;
+  if (error) throw error;
+  
+  return data && data.length > 0 ? data[0] : null;
+};
+
 // Staff endpoints
 app.get('/api/staff', async (req, res) => {
   try {
@@ -269,49 +395,107 @@ app.get('/api/staff', async (req, res) => {
   });
 
 app.post('/api/staff', async (req, res) => {
-  // Extract known fields and bundle any custom fields into metadata
-  const { name, grade, department, role, city, country, skills, email, ...metadata } = req.body;
-  const insertRow = {
-    name,
-    grade,
-    department,
-    role,
-    city,
-    country,
-    skills: Array.isArray(skills) ? skills.join(',') : skills,
-    email,
-    metadata
-  };
-  const { data, error } = await supabase
-    .from('staff')
-    .insert(insertRow)
-    .select('*');
+  try {
+    // Sanitize input first
+    const sanitizedData = sanitizeInput(req.body);
+    
+    // Validate input
+    const validationErrors = validateStaffInput(sanitizedData);
+    if (validationErrors.length > 0) {
+      return res.status(400).json({ 
+        error: 'Validation failed', 
+        details: validationErrors 
+      });
+    }
 
-  if (error) return res.status(500).json({ error: error.message });
-  res.status(201).json(data[0]);
+    // Extract known fields and bundle any custom fields into metadata
+    const { name, grade, department, role, city, country, skills, email, ...metadata } = sanitizedData;
+    
+    // Check for duplicate staff based on name, grade, and department
+    const existingStaff = await checkStaffDuplicate(name.trim(), grade?.trim() || null, department?.trim() || null);
+    if (existingStaff) {
+      return res.status(409).json({ 
+        error: 'Duplicate staff member', 
+        message: `Staff member with name "${name}", grade "${grade || 'N/A'}", and department "${department || 'N/A'}" already exists.`,
+        existingId: existingStaff.id
+      });
+    }
+
+    const insertRow = {
+      name: name.trim(),
+      grade: grade?.trim() || null,
+      department: department?.trim() || null,
+      role: role?.trim() || null,
+      city: city?.trim() || null,
+      country: country?.trim() || null,
+      skills: Array.isArray(skills) ? skills.join(',') : skills?.trim() || null,
+      email: email?.trim() || null,
+      metadata: Object.keys(metadata).length > 0 ? metadata : {}
+    };
+
+    const { data, error } = await supabase
+      .from('staff')
+      .insert(insertRow)
+      .select('*');
+
+    if (error) return res.status(500).json({ error: error.message });
+    res.status(201).json(data[0]);
+  } catch (err) {
+    console.error('Error creating staff:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 app.put('/api/staff/:id', async (req, res) => {
-  // Extract known fields and bundle any custom fields into metadata
-  const { name, grade, department, role, city, country, skills, email, ...metadata } = req.body;
-  const updateRow = {
-    name,
-    grade,
-    department,
-    role,
-    city,
-    country,
-    skills: Array.isArray(skills) ? skills.join(',') : skills,
-    email,
-    metadata
-  };
-  const { data, error } = await supabase
-    .from('staff')
-    .update(updateRow)
-    .eq('id', req.params.id)
-    .select('*');
-  if (error) return res.status(500).json({ error: error.message });
-  res.json(data[0]);
+  try {
+    // Sanitize input first
+    const sanitizedData = sanitizeInput(req.body);
+    
+    // Validate input
+    const validationErrors = validateStaffInput(sanitizedData);
+    if (validationErrors.length > 0) {
+      return res.status(400).json({ 
+        error: 'Validation failed', 
+        details: validationErrors 
+      });
+    }
+
+    // Extract known fields and bundle any custom fields into metadata
+    const { name, grade, department, role, city, country, skills, email, ...metadata } = sanitizedData;
+    
+    // Check for duplicate staff based on name, grade, and department (excluding current staff)
+    const existingStaff = await checkStaffDuplicate(name.trim(), grade?.trim() || null, department?.trim() || null, req.params.id);
+    if (existingStaff) {
+      return res.status(409).json({ 
+        error: 'Duplicate staff member', 
+        message: `Another staff member with name "${name}", grade "${grade || 'N/A'}", and department "${department || 'N/A'}" already exists.`,
+        existingId: existingStaff.id
+      });
+    }
+
+    const updateRow = {
+      name: name.trim(),
+      grade: grade?.trim() || null,
+      department: department?.trim() || null,
+      role: role?.trim() || null,
+      city: city?.trim() || null,
+      country: country?.trim() || null,
+      skills: Array.isArray(skills) ? skills.join(',') : skills?.trim() || null,
+      email: email?.trim() || null,
+      metadata: Object.keys(metadata).length > 0 ? metadata : {}
+    };
+
+    const { data, error } = await supabase
+      .from('staff')
+      .update(updateRow)
+      .eq('id', req.params.id)
+      .select('*');
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data[0]);
+  } catch (err) {
+    console.error('Error updating staff:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 app.delete('/api/staff/:id', async (req, res) => {
@@ -321,48 +505,196 @@ app.delete('/api/staff/:id', async (req, res) => {
   res.status(204).end();
 });
 
-// Bulk staff import with dedupe on name, grade, department
+// Bulk staff import with validation
 app.post('/api/staff/bulk', async (req, res) => {
   try {
-    const rows = req.body.map((ns) => ({
-      name: ns.name || '',
-      grade: ns.grade || '',
-      department: ns.department || '',
-      city: ns.city || '',
-      country: ns.country || '',
-      skills: Array.isArray(ns.skills) ? ns.skills.join(',') : ns.skills || ''
-    }));
-    // Bulk insert staff members
-    const { data, error } = await supabase
-      .from('staff')
-      .insert(rows, serviceRoleHeaders)
-      .select('*');
-    if (error) throw error;
-    res.json(data);
+    if (!Array.isArray(req.body)) {
+      return res.status(400).json({ error: 'Request body must be an array' });
+    }
+
+    // Validate each staff member
+    const validationErrors = [];
+    const validatedRows = [];
+    const duplicateEntries = [];
+    const processedEntries = new Set(); // Track duplicates within the import batch
+
+    for (let index = 0; index < req.body.length; index++) {
+      const ns = req.body[index];
+      const sanitizedData = sanitizeInput(ns);
+      const errors = validateStaffInput(sanitizedData);
+      
+      if (errors.length > 0) {
+        validationErrors.push({ index, errors });
+        continue;
+      }
+
+      const name = sanitizedData.name.trim();
+      const grade = sanitizedData.grade?.trim() || null;
+      const department = sanitizedData.department?.trim() || null;
+      
+      // Create a unique key for this staff member
+      const uniqueKey = `${name}-${grade || 'null'}-${department || 'null'}`;
+      
+      // Check for duplicates within the import batch
+      if (processedEntries.has(uniqueKey)) {
+        duplicateEntries.push({ 
+          index, 
+          name, 
+          grade, 
+          department, 
+          reason: 'Duplicate within import batch' 
+        });
+        continue;
+      }
+      
+      // Check for duplicates in the database
+      const existingStaff = await checkStaffDuplicate(name, grade, department);
+      if (existingStaff) {
+        duplicateEntries.push({ 
+          index, 
+          name, 
+          grade, 
+          department, 
+          reason: 'Already exists in database',
+          existingId: existingStaff.id
+        });
+        continue;
+      }
+      
+      // Add to processed set and prepare for insertion
+      processedEntries.add(uniqueKey);
+      validatedRows.push({
+        name,
+        grade,
+        department,
+        role: sanitizedData.role?.trim() || null,
+        city: sanitizedData.city?.trim() || null,
+        country: sanitizedData.country?.trim() || null,
+        skills: Array.isArray(sanitizedData.skills) ? sanitizedData.skills.join(',') : sanitizedData.skills?.trim() || null,
+        email: sanitizedData.email?.trim() || null,
+        metadata: {}
+      });
+    }
+
+    if (validationErrors.length > 0) {
+      return res.status(400).json({ 
+        error: 'Validation failed for some entries', 
+        details: validationErrors 
+      });
+    }
+
+    let insertedData = [];
+    if (validatedRows.length > 0) {
+      // Bulk insert staff members
+      const { data, error } = await supabase
+        .from('staff')
+        .insert(validatedRows, serviceRoleHeaders)
+        .select('*');
+      if (error) throw error;
+      insertedData = data;
+    }
+
+    // Return response with summary
+    res.json({
+      inserted: insertedData,
+      duplicatesSkipped: duplicateEntries,
+      summary: {
+        totalSubmitted: req.body.length,
+        inserted: insertedData.length,
+        duplicatesSkipped: duplicateEntries.length,
+        validationErrors: validationErrors.length
+      }
+    });
   } catch (e) {
     console.error('/api/staff/bulk', e);
     res.status(500).json({ error: e.message });
   }
 });
 
-// Bulk project import with dedupe on name
+// Bulk project import with validation
 app.post('/api/projects/bulk', async (req, res) => {
   try {
-    const rows = req.body.map((np) => ({
-      name: np.name || '',
-      description: np.description || '',
-      partner_name: np.partnerName || '',
-      team_lead: np.teamLead || '',
-      budget: np.budget || 0
-    }));
-    // Bulk insert projects
-    const { data, error } = await supabase
-      .from('projects')
-      .insert(rows, serviceRoleHeaders)
-      .select('*');
-    if (error) throw error;
+    if (!Array.isArray(req.body)) {
+      return res.status(400).json({ error: 'Request body must be an array' });
+    }
+
+    // Validate each project
+    const validationErrors = [];
+    const validatedRows = [];
+    const duplicateEntries = [];
+    const processedEntries = new Set(); // Track duplicates within the import batch
+
+    for (let index = 0; index < req.body.length; index++) {
+      const np = req.body[index];
+      const sanitizedData = sanitizeInput(np);
+      const errors = validateProjectInput(sanitizedData);
+      
+      if (errors.length > 0) {
+        validationErrors.push({ index, errors });
+        continue;
+      }
+
+      const name = sanitizedData.name.trim();
+      const partnerName = sanitizedData.partnerName?.trim() || sanitizedData.partner_name?.trim() || null;
+      
+      // Create a unique key for this project
+      const uniqueKey = `${name}-${partnerName || 'null'}`;
+      
+      // Check for duplicates within the import batch
+      if (processedEntries.has(uniqueKey)) {
+        duplicateEntries.push({ 
+          index, 
+          name, 
+          partnerName, 
+          reason: 'Duplicate within import batch' 
+        });
+        continue;
+      }
+      
+      // Check for duplicates in the database
+      const existingProject = await checkProjectDuplicate(name, partnerName);
+      if (existingProject) {
+        duplicateEntries.push({ 
+          index, 
+          name, 
+          partnerName, 
+          reason: 'Already exists in database',
+          existingId: existingProject.id
+        });
+        continue;
+      }
+      
+      // Add to processed set and prepare for insertion
+      processedEntries.add(uniqueKey);
+      validatedRows.push({
+        name,
+        description: sanitizedData.description?.trim() || null,
+        partner_name: partnerName,
+        team_lead: sanitizedData.teamLead?.trim() || sanitizedData.team_lead?.trim() || null,
+        budget: sanitizedData.budget ? parseFloat(sanitizedData.budget) : null
+      });
+    }
+
+    if (validationErrors.length > 0) {
+      return res.status(400).json({ 
+        error: 'Validation failed for some entries', 
+        details: validationErrors 
+      });
+    }
+
+    let insertedData = [];
+    if (validatedRows.length > 0) {
+      // Bulk insert projects
+      const { data, error } = await supabase
+        .from('projects')
+        .insert(validatedRows, serviceRoleHeaders)
+        .select('*');
+      if (error) throw error;
+      insertedData = data;
+    }
+    
     // Map to camelCase for client
-    const mapped = data.map(p => ({
+    const mapped = insertedData.map(p => ({
       id: p.id,
       name: p.name,
       description: p.description,
@@ -377,7 +709,18 @@ app.post('/api/projects/bulk', async (req, res) => {
         ].includes(key))
       )
     }));
-    res.json(mapped);
+
+    // Return response with summary
+    res.json({
+      inserted: mapped,
+      duplicatesSkipped: duplicateEntries,
+      summary: {
+        totalSubmitted: req.body.length,
+        inserted: mapped.length,
+        duplicatesSkipped: duplicateEntries.length,
+        validationErrors: validationErrors.length
+      }
+    });
   } catch (e) {
     console.error('/api/projects/bulk', e);
     res.status(500).json({ error: e.message });
@@ -432,15 +775,93 @@ app.get('/api/projects', async (req, res) => {
 });
 
 app.post('/api/projects', async (req, res) => {
-  const { data, error } = await supabase.from('projects').insert(req.body).select('*');
-  if (error) return res.status(500).json({ error: error.message });
-  res.status(201).json(data[0]);
+  try {
+    // Sanitize input first
+    const sanitizedData = sanitizeInput(req.body);
+    
+    // Validate input
+    const validationErrors = validateProjectInput(sanitizedData);
+    if (validationErrors.length > 0) {
+      return res.status(400).json({ 
+        error: 'Validation failed', 
+        details: validationErrors 
+      });
+    }
+
+    const name = sanitizedData.name.trim();
+    const partnerName = sanitizedData.partnerName?.trim() || sanitizedData.partner_name?.trim() || null;
+    
+    // Check for duplicate project based on name and partner
+    const existingProject = await checkProjectDuplicate(name, partnerName);
+    if (existingProject) {
+      return res.status(409).json({ 
+        error: 'Duplicate project', 
+        message: `Project with name "${name}" and partner "${partnerName || 'N/A'}" already exists.`,
+        existingId: existingProject.id
+      });
+    }
+
+    // Prepare the insert data
+    const insertRow = {
+      name,
+      description: sanitizedData.description?.trim() || null,
+      partner_name: partnerName,
+      team_lead: sanitizedData.teamLead?.trim() || sanitizedData.team_lead?.trim() || null,
+      budget: sanitizedData.budget ? parseFloat(sanitizedData.budget) : null
+    };
+
+    const { data, error } = await supabase.from('projects').insert(insertRow).select('*');
+    if (error) return res.status(500).json({ error: error.message });
+    res.status(201).json(data[0]);
+  } catch (err) {
+    console.error('Error creating project:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 app.put('/api/projects/:id', async (req, res) => {
-  const { data, error } = await supabase.from('projects').update(req.body).eq('id', req.params.id).select('*');
-  if (error) return res.status(500).json({ error: error.message });
-  res.json(data[0]);
+  try {
+    // Sanitize input first
+    const sanitizedData = sanitizeInput(req.body);
+    
+    // Validate input
+    const validationErrors = validateProjectInput(sanitizedData);
+    if (validationErrors.length > 0) {
+      return res.status(400).json({ 
+        error: 'Validation failed', 
+        details: validationErrors 
+      });
+    }
+
+    const name = sanitizedData.name.trim();
+    const partnerName = sanitizedData.partnerName?.trim() || sanitizedData.partner_name?.trim() || null;
+    
+    // Check for duplicate project based on name and partner (excluding current project)
+    const existingProject = await checkProjectDuplicate(name, partnerName, req.params.id);
+    if (existingProject) {
+      return res.status(409).json({ 
+        error: 'Duplicate project', 
+        message: `Another project with name "${name}" and partner "${partnerName || 'N/A'}" already exists.`,
+        existingId: existingProject.id
+      });
+    }
+
+    // Prepare the update data
+    const updateRow = {
+      name,
+      description: sanitizedData.description?.trim() || null,
+      partner_name: partnerName,
+      team_lead: sanitizedData.teamLead?.trim() || sanitizedData.team_lead?.trim() || null,
+      budget: sanitizedData.budget ? parseFloat(sanitizedData.budget) : null
+    };
+
+    const { data, error } = await supabase.from('projects').update(updateRow).eq('id', req.params.id).select('*');
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data[0]);
+  } catch (err) {
+    console.error('Error updating project:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 app.delete('/api/projects/:id', async (req, res) => {

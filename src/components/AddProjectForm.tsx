@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+
 import {
   Dialog,
   DialogTitle,
@@ -9,8 +10,10 @@ import {
   Grid,
   Box,
 } from '@mui/material';
-import { Project } from '../store/slices/projectSlice';
 import { v4 as uuidv4 } from 'uuid';
+
+import { Project } from '../store/slices/projectSlice';
+import ValidationAlert from './ValidationAlert';
 
 /**
  * Props for the AddProjectForm component
@@ -92,24 +95,46 @@ const AddProjectForm: React.FC<AddProjectFormProps> = ({ open, onClose, onAdd, o
   const validateForm = (): boolean => {
     const newErrors: Record<string, string> = {};
     
-    // Required field validation
+    // Project name validation
     if (!formData.name?.trim()) {
       newErrors.name = 'Project name is required';
+    } else if (formData.name.trim().length < 2) {
+      newErrors.name = 'Project name must be at least 2 characters long';
+    } else if (formData.name.trim().length > 100) {
+      newErrors.name = 'Project name must be less than 100 characters';
+    } else if (!/^[a-zA-Z0-9\s\-]+$/.test(formData.name.trim())) {
+      newErrors.name = 'Project name can only contain letters, numbers, spaces, and hyphens';
     }
     
+    // Partner name validation
     if (!formData.partnerName?.trim()) {
       newErrors.partnerName = 'Partner name is required';
+    } else if (formData.partnerName.length > 500) {
+      newErrors.partnerName = 'Partner name must be less than 500 characters';
     }
     
+    // Team lead validation
     if (!formData.teamLead?.trim()) {
       newErrors.teamLead = 'Team lead is required';
+    } else if (formData.teamLead.length > 500) {
+      newErrors.teamLead = 'Team lead must be less than 500 characters';
     }
     
-    // Budget must be provided and be a non-negative number
+    // Budget validation
     if (budgetInput.trim() === '') {
       newErrors.budget = 'Budget is required';
-    } else if (isNaN(parseFloat(budgetInput)) || parseFloat(budgetInput) < 0) {
-      newErrors.budget = 'Budget must be a positive number';
+    } else {
+      const budget = parseFloat(budgetInput);
+      if (isNaN(budget) || budget < 0) {
+        newErrors.budget = 'Budget must be a positive number';
+      } else if (budget > 10000000) {
+        newErrors.budget = 'Budget cannot exceed 10,000,000';
+      }
+    }
+    
+    // Description validation (if it exists)
+    if (formData.description && formData.description.length > 500) {
+      newErrors.description = 'Description must be less than 500 characters';
     }
     
     setErrors(newErrors);
@@ -167,6 +192,13 @@ const AddProjectForm: React.FC<AddProjectFormProps> = ({ open, onClose, onAdd, o
     >
       <DialogTitle sx={{ color: 'background.default' }}>{isEdit ? 'Edit Project' : 'Add New Project'}</DialogTitle>
       <DialogContent sx={{ color: 'background.default' }}>
+        {Object.keys(errors).length > 0 && (
+          <ValidationAlert 
+            errors={Object.values(errors)}
+            title="Please fix the following errors:"
+            onClose={() => setErrors({})}
+          />
+        )}
         <Grid container spacing={3} sx={{ mt: 0 }}>
           {/* Project Name field */}
           <Grid item xs={12} md={6}>

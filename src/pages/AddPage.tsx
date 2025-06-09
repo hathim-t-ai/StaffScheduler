@@ -1,6 +1,9 @@
 /* eslint-disable import/no-duplicates */
 /* eslint-disable no-alert */
 import React, { useState, useEffect } from 'react';
+
+import AddIcon from '@mui/icons-material/Add';
+import DeleteIcon from '@mui/icons-material/Delete';
 import { 
   Container, 
   Box, 
@@ -17,18 +20,18 @@ import {
   IconButton,
   Tooltip
 } from '@mui/material';
-import NavigationBar from '../components/NavigationBar';
-import Table from '../components/ui/table';
-import AddStaffForm from '../components/AddStaffForm';
-import ImportStaffModal from '../components/ImportStaffModal';
+
 import AddColumnModal from '../components/AddColumnModal';
-import AddProjectForm from '../components/AddProjectForm';
-import ImportProjectModal from '../components/ImportProjectModal';
 import { TabPanel } from '../components/AddPageComponents';
-import { useAddPageManager } from '../hooks/useAddPageManager';
+import AddProjectForm from '../components/AddProjectForm';
+import AddStaffForm from '../components/AddStaffForm';
+import ImportProjectModal from '../components/ImportProjectModal';
+import ImportStaffModal from '../components/ImportStaffModal';
+import NavigationBar from '../components/NavigationBar';
 import Sidebar from '../components/Sidebar';
-import AddIcon from '@mui/icons-material/Add';
-import DeleteIcon from '@mui/icons-material/Delete';
+import Table from '../components/ui/table';
+import { useAddPageManager } from '../hooks/useAddPageManager';
+
 import type { TableProps } from '../components/ui/table';
 
 /**

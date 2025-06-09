@@ -1,4 +1,15 @@
 import React, { useState, useRef, useEffect } from 'react';
+
+import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
+import ChatIcon from '@mui/icons-material/Chat';
+import ClearIcon from '@mui/icons-material/Clear';
+import CloseIcon from '@mui/icons-material/Close';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import FolderIcon from '@mui/icons-material/Folder';
+import ManageAccountsIcon from '@mui/icons-material/ManageAccounts';
+import MinimizeIcon from '@mui/icons-material/Minimize';
+import MoreVertIcon from '@mui/icons-material/MoreVert';
+import SendIcon from '@mui/icons-material/Send';
 import { 
   Box, 
   IconButton, 
@@ -16,24 +27,14 @@ import {
 } from '@mui/material';
 import ToggleButton from '@mui/material/ToggleButton';
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
-import SendIcon from '@mui/icons-material/Send';
-import ChatIcon from '@mui/icons-material/Chat';
-import CloseIcon from '@mui/icons-material/Close';
-import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
-import ManageAccountsIcon from '@mui/icons-material/ManageAccounts';
-import FolderIcon from '@mui/icons-material/Folder';
-import ClearIcon from '@mui/icons-material/Clear';
-import MoreVertIcon from '@mui/icons-material/MoreVert';
-import MinimizeIcon from '@mui/icons-material/Minimize';
+import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
-import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
-import format from 'date-fns/format';
 import axios from 'axios';
+import format from 'date-fns/format';
 import Accordion from '@mui/material/Accordion';
 import AccordionSummary from '@mui/material/AccordionSummary';
 import AccordionDetails from '@mui/material/AccordionDetails';
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 
 interface Message {
   sender: 'user' | 'bot';
@@ -364,7 +365,7 @@ const ChatWidget: React.FC = () => {
       try {
         const dateMatch = input.match(/(\d{1,2}(?:st|nd|rd|th)?\s+\w+(?:\s+\d{4})?)/i);
         if (dateMatch) {
-          let raw = dateMatch[1].replace(/(st|nd|rd|th)/i, '');
+          const raw = dateMatch[1].replace(/(st|nd|rd|th)/i, '');
           const withYear = /\d{4}/.test(raw) ? raw : `${raw} ${new Date().getFullYear()}`;
           const parsed = new Date(withYear);
           if (!isNaN(parsed.getTime())) {

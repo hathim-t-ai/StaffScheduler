@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+
+import AddIcon from '@mui/icons-material/Add';
 import {
   Dialog,
   DialogTitle,
@@ -12,9 +14,11 @@ import {
   InputAdornment,
   IconButton
 } from '@mui/material';
-import AddIcon from '@mui/icons-material/Add';
-import { StaffMember } from '../store/slices/staffSlice';
 import { v4 as uuidv4 } from 'uuid';
+
+import { StaffMember } from '../store/slices/staffSlice';
+import ValidationAlert from './ValidationAlert';
+
 
 interface AddStaffFormProps {
   open: boolean;
@@ -89,20 +93,49 @@ const AddStaffForm: React.FC<AddStaffFormProps> = ({ open, onClose, onAdd, onUpd
   const validateForm = (): boolean => {
     const newErrors: Record<string, string> = {};
     
+    // Name validation
     if (!formData.name?.trim()) {
       newErrors.name = 'Name is required';
+    } else if (formData.name.trim().length < 2) {
+      newErrors.name = 'Name must be at least 2 characters long';
+    } else if (formData.name.trim().length > 100) {
+      newErrors.name = 'Name must be less than 100 characters';
+    } else if (!/^[a-zA-Z\s\-']+$/.test(formData.name.trim())) {
+      newErrors.name = 'Name can only contain letters, spaces, hyphens, and apostrophes';
     }
     
+    // Grade validation
     if (!formData.grade?.trim()) {
       newErrors.grade = 'Grade is required';
+    } else if (formData.grade.length > 255) {
+      newErrors.grade = 'Grade must be less than 255 characters';
     }
     
+    // Department validation
+    if (formData.department && formData.department.length > 255) {
+      newErrors.department = 'Department must be less than 255 characters';
+    }
+    
+    // City validation
     if (!formData.city?.trim()) {
       newErrors.city = 'City is required';
+    } else if (formData.city.length > 255) {
+      newErrors.city = 'City must be less than 255 characters';
     }
     
+    // Country validation
     if (!formData.country?.trim()) {
       newErrors.country = 'Country is required';
+    } else if (formData.country.length > 255) {
+      newErrors.country = 'Country must be less than 255 characters';
+    }
+    
+    // Email validation
+    if (formData.email && formData.email.trim()) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(formData.email.trim())) {
+        newErrors.email = 'Please enter a valid email address';
+      }
     }
     
     setErrors(newErrors);
@@ -160,6 +193,13 @@ const AddStaffForm: React.FC<AddStaffFormProps> = ({ open, onClose, onAdd, onUpd
     >
       <DialogTitle sx={{ color: 'background.default' }}>{isEdit ? 'Edit Staff Member' : 'Add New Staff Member'}</DialogTitle>
       <DialogContent sx={{ color: 'background.default' }}>
+        {Object.keys(errors).length > 0 && (
+          <ValidationAlert 
+            errors={Object.values(errors)}
+            title="Please fix the following errors:"
+            onClose={() => setErrors({})}
+          />
+        )}
         <Grid container spacing={3} sx={{ mt: 0 }}>
           <Grid item xs={12} md={6}>
             <TextField
@@ -194,6 +234,8 @@ const AddStaffForm: React.FC<AddStaffFormProps> = ({ open, onClose, onAdd, onUpd
               name="department"
               value={formData.department}
               onChange={handleChange}
+              error={!!errors.department}
+              helperText={errors.department}
               margin="normal"
             />
           </Grid>
@@ -231,6 +273,8 @@ const AddStaffForm: React.FC<AddStaffFormProps> = ({ open, onClose, onAdd, onUpd
               type="email"
               value={formData.email || ''}
               onChange={handleChange}
+              error={!!errors.email}
+              helperText={errors.email}
               margin="normal"
             />
           </Grid>

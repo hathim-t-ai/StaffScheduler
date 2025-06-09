@@ -1,4 +1,6 @@
 import React, { useState, useRef, useCallback } from 'react';
+
+import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import {
   Dialog,
   DialogTitle,
@@ -19,10 +21,11 @@ import {
   Alert,
   LinearProgress
 } from '@mui/material';
-import CloudUploadIcon from '@mui/icons-material/CloudUpload';
-import * as XLSX from 'xlsx';
-import { StaffMember } from '../store/slices/staffSlice';
 import { v4 as uuidv4 } from 'uuid';
+import * as XLSX from 'xlsx';
+
+import { StaffMember } from '../store/slices/staffSlice';
+
 
 interface ImportStaffModalProps {
   open: boolean;

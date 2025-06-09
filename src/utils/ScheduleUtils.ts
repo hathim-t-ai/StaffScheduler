@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+
 import { ScheduleTask } from '../store/slices/scheduleSlice';
 
 // Export a function to get the Supabase client

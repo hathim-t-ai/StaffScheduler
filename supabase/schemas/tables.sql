@@ -11,19 +11,21 @@ CREATE TABLE staff (
   email TEXT,
   metadata JSONB NOT NULL DEFAULT '{}',
   created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  CONSTRAINT unique_staff_name_grade_department UNIQUE (name, grade, department)
 );
 
 -- Projects table
 CREATE TABLE projects (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  name TEXT NOT NULL UNIQUE,
+  name TEXT NOT NULL,
   description TEXT,
   partner_name TEXT,
   team_lead TEXT,
   budget NUMERIC,
   created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  CONSTRAINT unique_project_name_partner UNIQUE (name, partner_name)
 );
 
 -- Assignments table

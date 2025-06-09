@@ -1,31 +1,32 @@
 /* eslint-disable no-console */
 import React, { useState, useEffect, useCallback } from 'react';
+
 // Import Material UI components
-import { Container, Box, Button, Dialog, DialogTitle, DialogContent, DialogActions, Typography, Paper } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
+import { Container, Box, Button, Dialog, DialogTitle, DialogContent, DialogActions, Typography, Paper } from '@mui/material';
 
 // Import Redux and API utilities
-import { useSelector, useDispatch } from 'react-redux';
-import { RootState } from '../store';
 import axios from 'axios';
+import { useSelector, useDispatch } from 'react-redux';
 import { v4 as uuidv4 } from 'uuid';
 
 // Import app components
 import NavigationBar from '../components/NavigationBar';
 // Import schedule components
+import BulkAssignmentDialog from '../components/schedule/BulkAssignmentDialog';
 import FilterSidebar from '../components/schedule/FilterSidebar';
+import Notification from '../components/schedule/Notification';
 import ScheduleCalendar from '../components/schedule/ScheduleCalendar';
+import ScheduleContextMenu from '../components/schedule/ScheduleContextMenu';
 import TaskAssignmentDrawer from '../components/schedule/TaskAssignmentDrawer';
 import WeeklyAssignmentDialog from '../components/schedule/WeeklyAssignmentDialog';
-import BulkAssignmentDialog from '../components/schedule/BulkAssignmentDialog';
-import ScheduleContextMenu from '../components/schedule/ScheduleContextMenu';
-import Notification from '../components/schedule/Notification';
 
 // Import hooks and types
 import { useScheduleManager } from '../hooks/useScheduleManager';
-import { isAtEndDate as checkIsAtEndDate } from '../utils/ScheduleUtils';
-import { StaffMember } from '../store/slices/staffSlice';
+import { RootState } from '../store';
 import { clearSchedule, clearScheduleForStaff, setTasks, setStartDate, removeRange } from '../store/slices/scheduleSlice';
+import { StaffMember } from '../store/slices/staffSlice';
+import { isAtEndDate as checkIsAtEndDate } from '../utils/ScheduleUtils';
 
 const SchedulingPage: React.FC = () => {
   const dispatch = useDispatch();

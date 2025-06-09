@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+
 import {
   Container,
   Box,
@@ -17,8 +18,9 @@ import {
   Divider,
   SelectChangeEvent
 } from '@mui/material';
-import NavigationBar from '../components/NavigationBar';
 import { useSelector, useDispatch } from 'react-redux';
+
+import NavigationBar from '../components/NavigationBar';
 import { RootState } from '../store';
 import { updateGlobalRules } from '../store/slices/settingsSlice';
 

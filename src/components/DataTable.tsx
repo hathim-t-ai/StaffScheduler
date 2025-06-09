@@ -1,4 +1,9 @@
 import React, { useState } from 'react';
+
+import AddIcon from '@mui/icons-material/Add';
+import DeleteIcon from '@mui/icons-material/Delete';
+import EditIcon from '@mui/icons-material/Edit';
+import PersonRemoveIcon from '@mui/icons-material/PersonRemove';
 import {
   Table,
   TableBody,
@@ -19,10 +24,6 @@ import {
   DialogActions,
   Button
 } from '@mui/material';
-import AddIcon from '@mui/icons-material/Add';
-import DeleteIcon from '@mui/icons-material/Delete';
-import PersonRemoveIcon from '@mui/icons-material/PersonRemove';
-import EditIcon from '@mui/icons-material/Edit';
 
 interface DataTableProps<T> {
   data: T[];

@@ -1,10 +1,11 @@
 import { configureStore, combineReducers } from '@reduxjs/toolkit';
-import staffReducer from './slices/staffSlice';
+import { persistStore, persistReducer } from 'redux-persist';
+import storage from 'redux-persist/lib/storage';
+
 import projectReducer from './slices/projectSlice';
 import scheduleReducer from './slices/scheduleSlice';
 import settingsReducer from './slices/settingsSlice';
-import { persistStore, persistReducer } from 'redux-persist';
-import storage from 'redux-persist/lib/storage';
+import staffReducer from './slices/staffSlice';
 
 // Combine reducers
 const rootReducer = combineReducers({

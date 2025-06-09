@@ -1,4 +1,6 @@
 // Mock the getSupabaseClient function
+import { formatDate, formatDateISO, parseISODate, getDatesForCurrentWeek, isAtEndDate, getBackgroundColor, getTaskText, getWeeklyHours, hasAssignments } from '../utils/ScheduleUtils';
+
 jest.mock('../utils/ScheduleUtils', () => {
   const actual = jest.requireActual('../utils/ScheduleUtils');
   return {
@@ -15,8 +17,6 @@ jest.mock('../utils/ScheduleUtils', () => {
     })
   };
 });
-
-import { formatDate, formatDateISO, parseISODate, getDatesForCurrentWeek, isAtEndDate, getBackgroundColor, getTaskText, getWeeklyHours, hasAssignments } from '../utils/ScheduleUtils';
 
 describe('ScheduleUtils', () => {
   let mockData: any[] = [];

@@ -1,14 +1,17 @@
 // Polyfill TextEncoder and TextDecoder for testing environment
 const { TextEncoder: NodeTextEncoder, TextDecoder: NodeTextDecoder } = require('util');
+
 global.TextEncoder = NodeTextEncoder;
 global.TextDecoder = NodeTextDecoder;
 const dotenv = require('dotenv');
+
 dotenv.config();
 // Mock axios to prevent ESM parsing issues
 jest.mock('axios');
 // Provide dummy OpenAI API key for test environment
 process.env.OPENAI_API_KEY = process.env.OPENAI_API_KEY || 'test-openai-key';
 const request = require('supertest');
+
 const app = require('../../server');
 
 describe('API Integration Tests', () => {

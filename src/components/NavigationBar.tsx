@@ -1,5 +1,10 @@
 import React from 'react';
-import { useNavigate } from 'react-router-dom';
+
+import BarChartIcon from '@mui/icons-material/BarChart';
+import EventIcon from '@mui/icons-material/Event';
+import HomeIcon from '@mui/icons-material/Home';
+import PersonAddIcon from '@mui/icons-material/PersonAdd';
+import SettingsIcon from '@mui/icons-material/Settings';
 import {
   AppBar,
   Toolbar,
@@ -10,11 +15,7 @@ import {
   useMediaQuery,
   useTheme
 } from '@mui/material';
-import HomeIcon from '@mui/icons-material/Home';
-import PersonAddIcon from '@mui/icons-material/PersonAdd';
-import EventIcon from '@mui/icons-material/Event';
-import BarChartIcon from '@mui/icons-material/BarChart';
-import SettingsIcon from '@mui/icons-material/Settings';
+import { useNavigate } from 'react-router-dom';
 
 interface NavigationBarProps {
   title: string;
