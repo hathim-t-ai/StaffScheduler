@@ -253,10 +253,10 @@ const ChatWidget: React.FC = () => {
     // Handle pending report clarification
     const lower = input.toLowerCase();
     if (pendingReport) {
-      // Expect weekly, monthly, or overall
-      const tfMatch = lower.match(/\b(weekly|monthly|overall)\b/);
-      if (tfMatch) {
-        const timeframe = tfMatch[1] as 'weekly'|'monthly'|'overall';
+          // Expect daily, weekly, monthly, or overall
+    const tfMatch = lower.match(/\b(daily|weekly|monthly|overall)\b/);
+    if (tfMatch) {
+      const timeframe = tfMatch[1] as 'daily'|'weekly'|'monthly'|'overall';
         const dateStr = pendingReport.startDate!;
         // Show user message
         const userText = input;
@@ -269,7 +269,7 @@ const ChatWidget: React.FC = () => {
         setInput('');
         return;
       } else {
-        setMessages(prev => [...prev, { sender: 'bot', text: 'Please specify: weekly, monthly, or overall.', timestamp: new Date() }]);
+        setMessages(prev => [...prev, { sender: 'bot', text: 'Please specify: daily, weekly, monthly, or overall.', timestamp: new Date() }]);
         return;
       }
     }
@@ -322,7 +322,7 @@ const ChatWidget: React.FC = () => {
         return;
       }
       // Extract timeframe if present
-      const tfMatch = lower.match(/\b(weekly|monthly|overall)\b/);
+      const tfMatch = lower.match(/\b(daily|weekly|monthly|overall)\b/);
       // Extract date after 'from', supporting ordinal suffixes like '20th May'
       const dateMatch = lower.match(/from\s+(\d{1,2}(?:st|nd|rd|th)?\s+\w+(?:\s+\d{4})?)/i);
       let dateStr: string;
@@ -341,7 +341,7 @@ const ChatWidget: React.FC = () => {
       }
       // If timeframe specified, generate immediately
       if (tfMatch) {
-        const timeframe = tfMatch[1] as 'weekly'|'monthly'|'overall';
+                  const timeframe = tfMatch[1] as 'daily'|'weekly'|'monthly'|'overall';
         setMessages(prev => [...prev, { sender: 'user', text: input, timestamp: new Date() }]);
         setMessages(prev => [...prev, { sender: 'bot', text: `Opening Analytics page to generate ${timeframe} report from ${dateStr}...`, timestamp: new Date() }]);
         localStorage.setItem('chatMessages', JSON.stringify([...messages, { sender: 'bot', text: `Opening Analytics page to generate ${timeframe} report from ${dateStr}...`, timestamp: new Date() }]));
@@ -351,7 +351,7 @@ const ChatWidget: React.FC = () => {
       }
       // Otherwise ask which type
       setMessages(prev => [...prev, { sender: 'user', text: input, timestamp: new Date() }]);
-      setMessages(prev => [...prev, { sender: 'bot', text: `Would you like a weekly, monthly, or overall report starting from ${dateStr}?`, timestamp: new Date() }]);
+                setMessages(prev => [...prev, { sender: 'bot', text: `Would you like a daily, weekly, monthly, or overall report starting from ${dateStr}?`, timestamp: new Date() }]);
       setPendingReport({ startDate: dateStr });
       setInput('');
       return;

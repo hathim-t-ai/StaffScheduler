@@ -55,7 +55,7 @@ ChartJS.register(
 
 const AnalyticsPage: React.FC = () => {
   const dispatch = useDispatch();
-  const [timeframe, setTimeframe] = useState<'weekly' | 'monthly' | 'overall'>('overall');
+  const [timeframe, setTimeframe] = useState<'daily' | 'weekly' | 'monthly' | 'overall'>('overall');
   const [startDate, setStartDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
   const displayStartDate = useMemo(() => format(parseISO(startDate), 'dd/MM/yyyy'), [startDate]);
 
@@ -112,6 +112,13 @@ const AnalyticsPage: React.FC = () => {
   }, [dispatch]);
 
   const filteredTasks = useMemo(() => {
+    if (timeframe === 'daily') {
+      const selectedDate = parseISO(startDate);
+      return tasks.filter(t => {
+        const taskDate = parseISO(t.date);
+        return format(taskDate, 'yyyy-MM-dd') === format(selectedDate, 'yyyy-MM-dd');
+      });
+    }
     if (timeframe === 'weekly') {
       const start = parseISO(startDate);
       const end = addDays(start, 6);
@@ -172,7 +179,9 @@ const AnalyticsPage: React.FC = () => {
 
     // Calculate total possible working hours based on timeframe
     let totalPossibleHours = 0;
-    if (timeframe === 'weekly') {
+    if (timeframe === 'daily') {
+      totalPossibleHours = 8; // 1 day × 8 hours
+    } else if (timeframe === 'weekly') {
       totalPossibleHours = 40; // 5 days × 8 hours
     } else if (timeframe === 'monthly') {
       const daysInCurrentMonth = getDaysInMonth(parseISO(startDate));
@@ -272,7 +281,7 @@ const AnalyticsPage: React.FC = () => {
       // Calculate forecast based on timeframe
       if (timeframe !== 'overall') {
         // Simple linear projection based on current burn rate
-        const daysInPeriod = timeframe === 'weekly' ? 7 : getDaysInMonth(parseISO(startDate));
+        const daysInPeriod = timeframe === 'daily' ? 1 : timeframe === 'weekly' ? 7 : getDaysInMonth(parseISO(startDate));
         const dailyBurnRate = consumedToDate / daysInPeriod;
 
         // Assume project duration based on budget and current burn rate
@@ -361,9 +370,9 @@ const AnalyticsPage: React.FC = () => {
     const params = new URLSearchParams(window.location.search);
     const rs = params.get('reportStart');
     const tf = params.get('reportTimeframe');
-    if (rs && tf && ['weekly', 'monthly', 'overall'].includes(tf)) {
+            if (rs && tf && ['daily', 'weekly', 'monthly', 'overall'].includes(tf)) {
       setStartDate(rs);
-      setTimeframe(tf as 'weekly' | 'monthly' | 'overall');
+              setTimeframe(tf as 'daily' | 'weekly' | 'monthly' | 'overall');
       setShouldGenerate(true);
     }
   }, []);
@@ -386,20 +395,43 @@ const AnalyticsPage: React.FC = () => {
           sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2, gap: 2 }}
         >
           {/* Generate PDF Report Button */}
-          <Button variant="contained" color="primary" onClick={handleGenerateReport} sx={{ ml: 2 }}>
+          <Button 
+            variant="contained" 
+            onClick={handleGenerateReport} 
+            sx={{ 
+              ml: 2,
+              bgcolor: '#1565c0', // Dark blue color
+              color: '#fff',
+              borderRadius: 2,
+              fontWeight: 500,
+              minWidth: 120,
+              height: 48, // Consistent height
+              textTransform: 'none',
+              fontSize: 16,
+              boxShadow: 'none',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 1,
+              '&:hover': {
+                bgcolor: '#0d47a1', // Darker blue on hover
+              },
+            }}
+            disableElevation
+          >
             Generate Report
           </Button>
-          {['weekly', 'monthly', 'overall'].map(key => (
+          {['daily', 'weekly', 'monthly', 'overall'].map(key => (
             <Button
               key={key}
               onClick={() => setTimeframe(key as typeof timeframe)}
               sx={{
-                bgcolor: '#fff',
-                color: '#212121',
-                border: timeframe === key ? '2px solid #212121' : '1px solid #bdbdbd',
+                bgcolor: timeframe === key ? '#2e7d32' : '#fff', // Dark green when selected, white when not
+                color: timeframe === key ? '#fff' : '#212121', // White text when selected, dark when not
+                border: timeframe === key ? '2px solid #2e7d32' : '1px solid #bdbdbd',
                 borderRadius: 2,
                 fontWeight: timeframe === key ? 700 : 400,
                 minWidth: 120,
+                height: 48, // Consistent height
                 textTransform: 'none',
                 fontSize: 16,
                 boxShadow: 'none',
@@ -407,8 +439,8 @@ const AnalyticsPage: React.FC = () => {
                 alignItems: 'center',
                 gap: 1,
                 '&:hover': {
-                  bgcolor: '#fafafa',
-                  border: '2px solid #212121',
+                  bgcolor: timeframe === key ? '#1b5e20' : '#fafafa', // Darker green when selected, light gray when not
+                  border: timeframe === key ? '2px solid #1b5e20' : '2px solid #212121',
                 },
               }}
               disableElevation
@@ -434,7 +466,7 @@ const AnalyticsPage: React.FC = () => {
                 display: 'flex',
                 alignItems: 'center',
                 gap: 1,
-                height: 48,
+                height: 48, // Consistent height
                 '&:hover': { bgcolor: '#fafafa', border: '2px solid #212121' },
               }}
               disableElevation

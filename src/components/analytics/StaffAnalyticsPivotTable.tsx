@@ -11,7 +11,7 @@ interface StaffAnalyticsPivotTableProps {
   staffMembers: StaffMember[];
   tasks: ScheduleTask[];
   gradeRates: Record<string, number>;
-  timeframe: 'weekly' | 'monthly' | 'overall';
+  timeframe: 'daily' | 'weekly' | 'monthly' | 'overall';
   startDate: string;
 }
 
@@ -65,7 +65,9 @@ const StaffAnalyticsPivotTable: React.FC<StaffAnalyticsPivotTableProps> = ({
     
     // Calculate total possible working hours based on timeframe (matching AnalyticsPage logic)
     let totalPossibleHours = 0;
-    if (timeframe === 'weekly') {
+    if (timeframe === 'daily') {
+      totalPossibleHours = 8; // 1 day × 8 hours
+    } else if (timeframe === 'weekly') {
       totalPossibleHours = 40; // 5 days × 8 hours
     } else if (timeframe === 'monthly') {
       const daysInCurrentMonth = getDaysInMonth(parseISO(startDate));

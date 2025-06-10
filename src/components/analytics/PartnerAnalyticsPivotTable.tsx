@@ -9,7 +9,7 @@ interface PartnerAnalyticsPivotTableProps {
   staffMembers: StaffMember[];
   tasks: ScheduleTask[];
   gradeRates: Record<string, number>;
-  timeframe: 'weekly' | 'monthly' | 'overall';
+  timeframe: 'daily' | 'weekly' | 'monthly' | 'overall';
   startDate: string;
 }
 
