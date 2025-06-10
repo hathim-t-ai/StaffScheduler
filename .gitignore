@@ -61,3 +61,9 @@ tasks/
 *.sqlite
 *.db
 *.db-journal 
+
+# Cursor
+*.cursorrules
+*.cursor
+*.cursor/rules
+

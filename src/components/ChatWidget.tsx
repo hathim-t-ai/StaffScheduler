@@ -10,6 +10,7 @@ import ManageAccountsIcon from '@mui/icons-material/ManageAccounts';
 import MinimizeIcon from '@mui/icons-material/Minimize';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import SendIcon from '@mui/icons-material/Send';
+import SmartToyIcon from '@mui/icons-material/SmartToy';
 import { 
   Box, 
   IconButton, 
@@ -23,7 +24,8 @@ import {
   Autocomplete,
   Tooltip,
   Menu,
-  MenuItem
+  MenuItem,
+  Avatar
 } from '@mui/material';
 import ToggleButton from '@mui/material/ToggleButton';
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
@@ -663,34 +665,80 @@ const ChatWidget: React.FC = () => {
       <Box 
         key={index} 
         sx={{ 
-          my: 1.5, 
+          my: 2.5, 
           display: 'flex',
           flexDirection: 'column',
-          alignItems: isUser ? 'flex-end' : 'flex-start'
+          alignItems: isUser ? 'flex-end' : 'flex-start',
+          px: 1
         }}
       >
         <Box sx={{
           display: 'flex',
-          alignItems: 'flex-start',
-          flexDirection: isUser ? 'row-reverse' : 'row'
+          alignItems: 'flex-end',
+          flexDirection: isUser ? 'row-reverse' : 'row',
+          gap: 1,
+          maxWidth: '85%'
         }}>
+          {/* AI Avatar for bot messages */}
+          {!isUser && (
+            <Avatar
+              sx={{
+                width: 36,
+                height: 36,
+                background: 'linear-gradient(135deg, #4CAF50 0%, #2E7D32 50%, #1B5E20 100%)',
+                color: 'white',
+                mb: 0.5,
+                boxShadow: '0 4px 12px rgba(76, 175, 80, 0.3)'
+              }}
+            >
+              <SmartToyIcon fontSize="small" />
+            </Avatar>
+          )}
+          
           <Box
             sx={{
-              p: 1.5,
-              maxWidth: '75%',
-              borderRadius: 2,
-              bgcolor: isUser ? 'primary.light' : 'grey.100',
-              color: isUser ? 'white' : 'text.primary'
+              p: 2,
+              borderRadius: isUser ? '20px 20px 8px 20px' : '20px 20px 20px 8px',
+              background: isUser 
+                ? 'linear-gradient(135deg, #66BB6A 0%, #4CAF50 50%, #388E3C 100%)'
+                : '#FFFFFF',
+              color: isUser ? 'white' : 'text.primary',
+              boxShadow: isUser 
+                ? '0 8px 24px rgba(76, 175, 80, 0.25), 0 4px 8px rgba(76, 175, 80, 0.15)'
+                : '0 4px 16px rgba(0, 0, 0, 0.08), 0 2px 4px rgba(0, 0, 0, 0.04)',
+              border: isUser ? 'none' : '1px solid rgba(0, 0, 0, 0.06)',
+              position: 'relative',
+              '&::before': isUser ? {} : {
+                content: '""',
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                background: 'linear-gradient(135deg, rgba(76, 175, 80, 0.02) 0%, rgba(46, 125, 50, 0.01) 100%)',
+                borderRadius: 'inherit',
+                pointerEvents: 'none'
+              }
             }}
           >
             {message.type === 'thinking' ? (
-              <Accordion disableGutters elevation={0} sx={{ bgcolor: 'transparent' }}>
-                <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+              <Accordion 
+                disableGutters 
+                elevation={0} 
+                sx={{ 
+                  bgcolor: 'transparent',
+                  '&:before': { display: 'none' }
+                }}
+              >
+                <AccordionSummary 
+                  expandIcon={<ExpandMoreIcon sx={{ color: 'text.secondary' }} />}
+                  sx={{ p: 0, minHeight: 'auto', '& .MuiAccordionSummary-content': { m: 0 } }}
+                >
                   <Typography variant="body2" sx={{ fontStyle: 'italic', color: 'text.secondary' }}>
                     Thought{message.duration ? ` for ${message.duration.toFixed(1)} seconds` : ''}
                   </Typography>
                 </AccordionSummary>
-                <AccordionDetails>
+                <AccordionDetails sx={{ p: '8px 0 0 0' }}>
                   <Typography variant="body2" sx={{ fontStyle: 'italic', color: 'text.secondary' }}>
                     {message.text}
                   </Typography>
@@ -703,13 +751,22 @@ const ChatWidget: React.FC = () => {
                 variant="body2"
                 component="div"
                 sx={{
-                  whiteSpace: 'pre-line'
+                  whiteSpace: 'pre-line',
+                  fontWeight: 500
                 }}
               >
                 {message.text}
               </Typography>
             ) : (
-              <Typography variant="body2">{message.text}</Typography>
+              <Typography 
+                variant="body2" 
+                sx={{ 
+                  lineHeight: 1.5,
+                  fontWeight: isUser ? 500 : 400
+                }}
+              >
+                {message.text}
+              </Typography>
             )}
           </Box>
         </Box>
@@ -719,7 +776,8 @@ const ChatWidget: React.FC = () => {
             color: 'text.secondary', 
             mt: 0.5,
             mr: isUser ? 1 : 0,
-            ml: isUser ? 0 : 1
+            ml: isUser ? 0 : 4.5,
+            fontSize: '0.7rem'
           }}
         >
           {messageTime}
@@ -731,24 +789,31 @@ const ChatWidget: React.FC = () => {
   return (
     <>
       {!open && (
-        <Tooltip title="Open Staff Scheduler Chat Assistant">
+        <Tooltip title="Open Staff Scheduler Chat Assistant" placement="left">
           <IconButton
             onClick={handleToggleChat}
             sx={{ 
               position: 'fixed', 
-              bottom: 20, 
-              right: 20, 
-              bgcolor: 'primary.main', 
+              bottom: 24, 
+              right: 24, 
+              background: 'linear-gradient(135deg, #4CAF50 0%, #2E7D32 50%, #1B5E20 100%)',
               color: 'white', 
               zIndex: 1300,
-              height: 56,
-              width: 56,
+              height: 64,
+              width: 64,
+              boxShadow: '0 8px 24px rgba(76, 175, 80, 0.3), 0 4px 12px rgba(76, 175, 80, 0.2)',
+              transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
               '&:hover': {
-                bgcolor: 'primary.dark',
+                background: 'linear-gradient(135deg, #66BB6A 0%, #4CAF50 50%, #2E7D32 100%)',
+                transform: 'translateY(-2px)',
+                boxShadow: '0 12px 32px rgba(76, 175, 80, 0.4), 0 6px 16px rgba(76, 175, 80, 0.25)',
+              },
+              '&:active': {
+                transform: 'translateY(0px)',
               }
             }}
           >
-            <ChatIcon fontSize="medium" />
+            <ChatIcon fontSize="large" />
           </IconButton>
         </Tooltip>
       )}
@@ -756,47 +821,72 @@ const ChatWidget: React.FC = () => {
         <Box 
           sx={{ 
             position: 'fixed', 
-            bottom: 20, 
-            right: 20, 
-            width: 360, 
-            height: minimized ? 'auto' : 600, 
+            bottom: 24, 
+            right: 24, 
+            width: 400, 
+            height: minimized ? 'auto' : 700, 
             zIndex: 1300,
-            boxShadow: 10,
-            borderRadius: 2,
-            overflow: 'hidden'
+            borderRadius: 3,
+            overflow: 'hidden',
+            background: 'linear-gradient(145deg, rgba(245, 245, 245, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%)',
+            boxShadow: '0 24px 48px rgba(0, 0, 0, 0.15), 0 12px 24px rgba(0, 0, 0, 0.1)',
+            backdropFilter: 'blur(20px)',
+            border: '1px solid rgba(255, 255, 255, 0.2)'
           }}
         >
           <Paper 
             elevation={0} 
             sx={{ 
-              bgcolor: 'white', 
+              bgcolor: 'transparent', 
               color: 'black', 
               height: minimized ? 'auto' : '100%', 
               display: 'flex', 
-              flexDirection: 'column'
+              flexDirection: 'column',
+              background: 'transparent'
             }}
           >
+            {/* Header with gradient background */}
             <Box 
               sx={{ 
-                p: 2, 
-                bgcolor: 'primary.main', 
+                p: 2.5, 
+                background: 'linear-gradient(135deg, #4CAF50 0%, #2E7D32 50%, #1B5E20 100%)',
                 color: 'white',
                 display: 'flex', 
                 justifyContent: 'space-between', 
                 alignItems: 'center',
                 cursor: 'pointer',
+                transition: 'all 0.3s ease',
+                borderRadius: minimized ? '12px' : '0',
                 '&:hover': {
-                  bgcolor: 'primary.dark'
+                  background: 'linear-gradient(135deg, #66BB6A 0%, #4CAF50 50%, #2E7D32 100%)'
                 }
               }}
               onClick={handleHeaderClick}
             >
-              <Typography variant="h6" sx={{ fontWeight: 'bold', flexGrow: 1 }}>
-                Staff Scheduler Assistant
-              </Typography>
-              <Box sx={{ display: 'flex', gap: 1 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                <Avatar
+                  sx={{
+                    width: 32,
+                    height: 32,
+                    background: 'linear-gradient(135deg, rgba(255, 255, 255, 0.2) 0%, rgba(255, 255, 255, 0.1) 100%)',
+                    color: 'white'
+                  }}
+                >
+                  <SmartToyIcon fontSize="small" />
+                </Avatar>
+                <Typography variant="h6" sx={{ fontWeight: 600, fontSize: '1.1rem' }}>
+                  Staff Scheduler Assistant
+                </Typography>
+              </Box>
+              <Box sx={{ display: 'flex', gap: 0.5 }}>
                 <Tooltip title={minimized ? "Maximize Chat" : "Minimize Chat"}>
-                  <IconButton size="small" sx={{ color: 'white' }}>
+                  <IconButton 
+                    size="small" 
+                    sx={{ 
+                      color: 'white',
+                      '&:hover': { bgcolor: 'rgba(255, 255, 255, 0.1)' }
+                    }}
+                  >
                     <MinimizeIcon />
                   </IconButton>
                 </Tooltip>
@@ -804,10 +894,13 @@ const ChatWidget: React.FC = () => {
                   <IconButton 
                     size="small" 
                     onClick={(e) => {
-                      e.stopPropagation(); // Prevent header click
+                      e.stopPropagation();
                       handleMenuOpen(e);
                     }} 
-                    sx={{ color: 'white' }}
+                    sx={{ 
+                      color: 'white',
+                      '&:hover': { bgcolor: 'rgba(255, 255, 255, 0.1)' }
+                    }}
                   >
                     <MoreVertIcon />
                   </IconButton>
@@ -816,10 +909,13 @@ const ChatWidget: React.FC = () => {
                   <IconButton 
                     size="small" 
                     onClick={(e) => {
-                      e.stopPropagation(); // Prevent header click
+                      e.stopPropagation();
                       setOpen(false);
                     }} 
-                    sx={{ color: 'white' }}
+                    sx={{ 
+                      color: 'white',
+                      '&:hover': { bgcolor: 'rgba(255, 255, 255, 0.1)' }
+                    }}
                   >
                     <CloseIcon />
                   </IconButton>
@@ -840,10 +936,24 @@ const ChatWidget: React.FC = () => {
                 vertical: 'top',
                 horizontal: 'right',
               }}
-              PaperProps={{ sx: { bgcolor: 'white' } }}
+              PaperProps={{ 
+                sx: { 
+                  bgcolor: 'white',
+                  borderRadius: 2,
+                  boxShadow: '0 8px 24px rgba(0, 0, 0, 0.12)',
+                  border: '1px solid rgba(0, 0, 0, 0.08)'
+                } 
+              }}
             >
-              <MenuItem onClick={clearChat}>
-                <ClearIcon sx={{ mr: 1 }} />
+              <MenuItem 
+                onClick={clearChat}
+                sx={{
+                  '&:hover': {
+                    bgcolor: 'rgba(76, 175, 80, 0.04)'
+                  }
+                }}
+              >
+                <ClearIcon sx={{ mr: 1, color: 'text.secondary' }} />
                 Clear Chat History
               </MenuItem>
             </Menu>
@@ -851,24 +961,48 @@ const ChatWidget: React.FC = () => {
             {/* Show the rest of the chat only when not minimized */}
             {!minimized && (
               <>
-                <Box sx={{ px: 2, py: 1.5, bgcolor: 'grey.100' }}>
+                {/* Mode toggle section */}
+                <Box sx={{ p: 2, bgcolor: 'rgba(255, 255, 255, 0.8)', backdropFilter: 'blur(10px)' }}>
                   <ToggleButtonGroup
                     value={mode}
                     exclusive
                     onChange={handleModeChange}
                     size="small"
                     fullWidth
-                    sx={{ mb: 0 }}
+                    sx={{ 
+                      mb: 0,
+                      '& .MuiToggleButton-root': {
+                        border: '1px solid rgba(76, 175, 80, 0.2)',
+                        borderRadius: '12px !important',
+                        px: 2,
+                        py: 1.5,
+                        '&:first-of-type': {
+                          marginRight: 1,
+                          borderTopRightRadius: '12px !important',
+                          borderBottomRightRadius: '12px !important'
+                        },
+                        '&:last-of-type': {
+                          borderTopLeftRadius: '12px !important',
+                          borderBottomLeftRadius: '12px !important'
+                        }
+                      }
+                    }}
                   >
                     <ToggleButton 
                       value="ask" 
                       sx={{ 
-                        py: 1,
                         '&.Mui-selected': {
-                          bgcolor: 'primary.light',
+                          background: 'linear-gradient(135deg, #4CAF50 0%, #388E3C 100%)',
                           color: 'white',
+                          fontWeight: 600,
                           '&:hover': {
-                            bgcolor: 'primary.main',
+                            background: 'linear-gradient(135deg, #66BB6A 0%, #4CAF50 100%)',
+                          }
+                        },
+                        '&:not(.Mui-selected)': {
+                          color: 'text.primary',
+                          '&:hover': {
+                            bgcolor: 'rgba(76, 175, 80, 0.04)'
                           }
                         }
                       }}
@@ -879,12 +1013,18 @@ const ChatWidget: React.FC = () => {
                     <ToggleButton 
                       value="agent" 
                       sx={{ 
-                        py: 1,
                         '&.Mui-selected': {
-                          bgcolor: 'secondary.light',
+                          background: 'linear-gradient(135deg, #2E7D32 0%, #1B5E20 100%)',
                           color: 'white',
+                          fontWeight: 600,
                           '&:hover': {
-                            bgcolor: 'secondary.main',
+                            background: 'linear-gradient(135deg, #4CAF50 0%, #2E7D32 100%)',
+                          }
+                        },
+                        '&:not(.Mui-selected)': {
+                          color: 'text.primary',
+                          '&:hover': {
+                            bgcolor: 'rgba(76, 175, 80, 0.04)'
                           }
                         }
                       }}
@@ -895,61 +1035,118 @@ const ChatWidget: React.FC = () => {
                   </ToggleButtonGroup>
                 </Box>
                 
-                <Divider />
-                
+                {/* Messages area with better styling */}
                 <Box 
                   sx={{ 
                     flex: 1, 
-                    p: 2, 
                     overflowY: 'auto',
-                    backgroundColor: '#f9f9f9'
+                    background: 'linear-gradient(180deg, rgba(248, 250, 252, 0.8) 0%, rgba(255, 255, 255, 0.9) 100%)',
+                    position: 'relative',
+                    '&::-webkit-scrollbar': {
+                      width: 6,
+                    },
+                    '&::-webkit-scrollbar-track': {
+                      background: 'transparent',
+                    },
+                    '&::-webkit-scrollbar-thumb': {
+                      background: 'rgba(76, 175, 80, 0.3)',
+                      borderRadius: 3,
+                      '&:hover': {
+                        background: 'rgba(76, 175, 80, 0.5)',
+                      }
+                    }
                   }}
                 >
-                  {messages.map((message, idx) => renderMessage(message, idx))}
-                  <div ref={messagesEndRef} />
+                  <Box sx={{ p: 2, pt: 3 }}>
+                    {messages.map((message, idx) => renderMessage(message, idx))}
+                    <div ref={messagesEndRef} />
+                  </Box>
                 </Box>
                 
-                <Divider />
-                
+                {/* Input area with modern styling */}
                 <Box 
                   sx={{ 
-                    p: 1.5, 
-                    display: 'flex', 
-                    alignItems: 'center',
-                    bgcolor: 'white'
+                    p: 2, 
+                    background: 'rgba(255, 255, 255, 0.95)',
+                    backdropFilter: 'blur(10px)',
+                    borderTop: '1px solid rgba(0, 0, 0, 0.06)'
                   }}
                 >
                   {(mode === 'ask' || mode === 'agent') && (
-                    <TextField
-                      variant="outlined"
-                      size="small"
-                      fullWidth
-                      placeholder="Ask a question..."
-                      sx={{ bgcolor: 'white' }}
-                      value={input}
-                      onChange={(e) => setInput(e.target.value)}
-                      onKeyPress={(e) => {
-                        if (e.key === 'Enter' && !e.shiftKey) {
-                          e.preventDefault();
-                          sendMessage();
-                        }
-                      }}
-                      disabled={loading}
-                      multiline
-                      maxRows={3}
-                    />
-                  )}
-                  
-                  {(mode === 'ask' || mode === 'agent') && (
-                    <IconButton 
-                      color="primary" 
-                      onClick={sendMessage} 
-                      disabled={loading || !input.trim()}
-                      sx={{ ml: 1 }}
-                    >
-                      {/* Show spinner while loading, otherwise send icon */}
-                      {loading ? <CircularProgress size={24} /> : <SendIcon />}
-                    </IconButton>
+                    <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: 1.5 }}>
+                      <TextField
+                        variant="outlined"
+                        size="small"
+                        fullWidth
+                        placeholder="Ask me anything..."
+                        value={input}
+                        onChange={(e) => setInput(e.target.value)}
+                        onKeyPress={(e) => {
+                          if (e.key === 'Enter' && !e.shiftKey) {
+                            e.preventDefault();
+                            sendMessage();
+                          }
+                        }}
+                        disabled={loading}
+                        multiline
+                        maxRows={3}
+                        sx={{
+                          '& .MuiOutlinedInput-root': {
+                            borderRadius: 3,
+                            bgcolor: 'white',
+                            boxShadow: '0 2px 8px rgba(0, 0, 0, 0.04)',
+                            border: '1px solid rgba(0, 0, 0, 0.08)',
+                            transition: 'all 0.2s ease',
+                            '&:hover': {
+                              borderColor: 'rgba(76, 175, 80, 0.3)',
+                              boxShadow: '0 4px 12px rgba(76, 175, 80, 0.08)',
+                            },
+                            '&.Mui-focused': {
+                              borderColor: '#4CAF50',
+                              boxShadow: '0 4px 12px rgba(76, 175, 80, 0.15)',
+                            }
+                          },
+                          '& .MuiOutlinedInput-input': {
+                            py: 1.5,
+                            px: 2,
+                            fontSize: '0.9rem'
+                          }
+                        }}
+                      />
+                      
+                      <IconButton 
+                        onClick={sendMessage} 
+                        disabled={loading || !input.trim()}
+                        sx={{ 
+                          background: loading || !input.trim() 
+                            ? 'rgba(0, 0, 0, 0.12)' 
+                            : 'linear-gradient(135deg, #4CAF50 0%, #2E7D32 100%)',
+                          color: 'white',
+                          width: 48,
+                          height: 48,
+                          borderRadius: 2,
+                          transition: 'all 0.2s ease',
+                          '&:hover': !loading && input.trim() ? {
+                            background: 'linear-gradient(135deg, #66BB6A 0%, #4CAF50 100%)',
+                            transform: 'translateY(-1px)',
+                            boxShadow: '0 6px 16px rgba(76, 175, 80, 0.25)',
+                          } : {},
+                          '&:disabled': {
+                            background: 'rgba(0, 0, 0, 0.12)',
+                            color: 'rgba(0, 0, 0, 0.26)'
+                          }
+                        }}
+                      >
+                        {loading ? (
+                          <CircularProgress 
+                            size={20} 
+                            sx={{ color: 'rgba(0, 0, 0, 0.26)' }} 
+                          />
+                        ) : (
+                          <SendIcon />
+                        )}
+                      </IconButton>
+                    </Box>
                   )}
                 </Box>
               </>
