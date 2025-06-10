@@ -37,6 +37,7 @@ import { useSelector, useDispatch } from 'react-redux';
 import axios from 'axios';
 
 import NavigationBar from '../components/NavigationBar';
+import { StaffAnalyticsPivotTable, PartnerAnalyticsPivotTable } from '../components/analytics';
 import { RootState } from '../store';
 import { setStaffMembers } from '../store/slices/staffSlice';
 import { setProjects, updateProject, addProject } from '../store/slices/projectSlice';
@@ -754,6 +755,32 @@ const AnalyticsPage: React.FC = () => {
                 ))}
               </Box>
             </Paper>
+          </Grid>
+        </Grid>
+
+        {/* Pivot Tables Section */}
+        <Grid container spacing={3} sx={{ mb: 3 }}>
+          {/* Staff Analytics Pivot Table */}
+          <Grid item xs={12} md={6}>
+            <StaffAnalyticsPivotTable
+              staffMembers={staffMembers}
+              tasks={filteredTasks}
+              gradeRates={gradeRates}
+              timeframe={timeframe}
+              startDate={startDate}
+            />
+          </Grid>
+
+          {/* Partner Analytics Pivot Table */}
+          <Grid item xs={12} md={6}>
+            <PartnerAnalyticsPivotTable
+              projects={projects}
+              staffMembers={staffMembers}
+              tasks={filteredTasks}
+              gradeRates={gradeRates}
+              timeframe={timeframe}
+              startDate={startDate}
+            />
           </Grid>
         </Grid>
 

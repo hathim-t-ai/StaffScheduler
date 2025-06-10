@@ -570,6 +570,69 @@ class BulkBookingTool(BaseTool):
 5. Default layout can be restored with a single click
 6. Custom layouts persist across user sessions
 
+#### ST-406: View staff analytics in hierarchical pivot table with view mode toggle
+**As a** department head,  
+**I want to** view staff analytics in a hierarchical pivot table format with multiple view options,  
+**So that** I can drill down from different organizational perspectives to individual staff performance metrics.
+
+**Acceptance Criteria:**
+1. Staff pivot table is positioned below the existing 'Chargeability % Heat-map' visualization
+2. Table displays side-by-side with the Partner pivot table (ST-407)
+3. **View Mode Toggle**: Two toggle buttons at the top of the table labeled 'Country' and 'Department'
+   - 'Country' button: When selected (highlighted), displays Country > City > Department > Staff hierarchy
+   - 'Department' button: When selected (highlighted), displays Department > Country > City > Staff hierarchy
+   - Toggle buttons use consistent styling with other Analytics page controls
+   - Selected button is visually highlighted with primary theme color
+   - Only one button can be selected at a time (exclusive selection)
+4. **Country View Mode (Default)**:
+   - Left column shows hierarchical Country > City > Department > Staff structure
+   - Country rows include expand/collapse functionality with arrow indicators
+   - Expanding a country reveals all cities within that country
+   - Expanding a city reveals all departments within that city  
+   - Expanding a department reveals all individual staff members within that department
+5. **Department View Mode**:
+   - Left column shows hierarchical Department > Country > City > Staff structure
+   - Department rows include expand/collapse functionality with arrow indicators
+   - Expanding a department reveals all countries with staff in that department
+   - Expanding a country reveals all cities within that country for the specific department
+   - Expanding a city reveals all individual staff members within that city and department
+6. Right columns display aggregated metrics: 'Total Productive Hrs', 'Total Working Hrs', 'Chargeability %', 'Budget Consumed'
+7. Data is properly aggregated at each hierarchical level based on the selected view mode:
+   - **Country View**: Country level > City level > Department level > Staff level
+   - **Department View**: Department level > Country level > City level > Staff level
+8. Chargeability % is calculated as (Total Productive Hrs / Total Working Hrs) * 100
+9. Budget Consumed is calculated based on staff grade rates and hours worked on projects
+10. Table maintains consistent styling with other Analytics page visualizations
+11. Expand/collapse state persists during the session but resets on page refresh
+12. View mode selection persists during the session but resets to 'Country' on page refresh
+13. Table handles empty data gracefully with appropriate messaging
+14. All metrics respect the selected timeframe filters (weekly, monthly, overall)
+15. Switching between view modes preserves the same data but reorganizes the hierarchy
+16. Performance remains optimal when switching between view modes (sub-second response time)
+
+#### ST-407: View partner analytics in hierarchical pivot table  
+**As a** project manager,  
+**I want to** view partner analytics in a hierarchical pivot table format,  
+**So that** I can drill down from partner level to individual project performance metrics.
+
+**Acceptance Criteria:**
+1. Partner pivot table is positioned below the existing 'Budget Consumed (Absolute & %)' visualization
+2. Table displays side-by-side with the Staff pivot table (ST-406)
+3. Left column shows hierarchical Partner > Projects structure
+4. Partner rows include expand/collapse functionality with arrow indicators
+5. Expanding a partner reveals all projects assigned to that partner
+6. Right columns display aggregated metrics: 'Total Budget', 'Budget Consumed', 'Total Working Hrs Assigned'
+7. Data is properly aggregated at each hierarchical level:
+   - Partner level: Sum of all project budgets and consumed amounts for that partner
+   - Project level: Individual project budget, consumed amount, and assigned hours
+8. Total Working Hrs Assigned reflects hours allocated to projects under each partner
+9. Budget Consumed is calculated based on staff grade rates and actual hours worked
+10. Table maintains consistent styling with other Analytics page visualizations
+11. Expand/collapse state persists during the session but resets on page refresh
+12. Table handles empty data gracefully with appropriate messaging
+13. All metrics respect the selected timeframe filters (weekly, monthly, overall)
+14. Project-level rows show individual project performance within partner groupings
+
 ### Settings Page
 
 #### ST-501: Configure global scheduling rules
