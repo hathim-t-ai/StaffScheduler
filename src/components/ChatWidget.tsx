@@ -11,6 +11,9 @@ import MinimizeIcon from '@mui/icons-material/Minimize';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import SendIcon from '@mui/icons-material/Send';
 import SmartToyIcon from '@mui/icons-material/SmartToy';
+import AddIcon from '@mui/icons-material/Add';
+import MicIcon from '@mui/icons-material/Mic';
+import PsychologyIcon from '@mui/icons-material/Psychology';
 import { 
   Box, 
   IconButton, 
@@ -665,60 +668,67 @@ const ChatWidget: React.FC = () => {
       <Box 
         key={index} 
         sx={{ 
-          my: 2.5, 
+          mb: 3,
           display: 'flex',
           flexDirection: 'column',
           alignItems: isUser ? 'flex-end' : 'flex-start',
-          px: 1
+          px: 2
         }}
       >
+        {/* Timestamp */}
+        {index === 0 || format(messages[index - 1]?.timestamp || new Date(), 'MMM d') !== format(message.timestamp, 'MMM d') && (
+          <Typography 
+            variant="caption" 
+            sx={{ 
+              alignSelf: 'center',
+              color: 'text.secondary',
+              fontSize: '0.75rem',
+              mb: 2,
+              mt: index === 0 ? 0 : 2
+            }}
+          >
+            {format(message.timestamp, 'EEEE \'at\' h:mm a')}
+          </Typography>
+        )}
+
         <Box sx={{
           display: 'flex',
-          alignItems: 'flex-end',
+          alignItems: 'flex-start',
           flexDirection: isUser ? 'row-reverse' : 'row',
           gap: 1,
-          maxWidth: '85%'
+          maxWidth: '85%',
+          width: 'auto'
         }}>
-          {/* AI Avatar for bot messages */}
+          {/* Bot Avatar */}
           {!isUser && (
             <Avatar
               sx={{
-                width: 36,
-                height: 36,
-                background: 'linear-gradient(135deg, #4CAF50 0%, #2E7D32 50%, #1B5E20 100%)',
+                width: 28,
+                height: 28,
+                background: 'linear-gradient(135deg, #064028 0%, #0d5a3a 100%)',
                 color: 'white',
-                mb: 0.5,
-                boxShadow: '0 4px 12px rgba(76, 175, 80, 0.3)'
+                fontSize: '0.75rem',
+                mt: 0.5
               }}
             >
-              <SmartToyIcon fontSize="small" />
+              <PsychologyIcon fontSize="small" />
             </Avatar>
           )}
           
           <Box
             sx={{
-              p: 2,
-              borderRadius: isUser ? '20px 20px 8px 20px' : '20px 20px 20px 8px',
+              maxWidth: isUser ? '280px' : '320px',
+              minWidth: 'auto',
               background: isUser 
-                ? 'linear-gradient(135deg, #66BB6A 0%, #4CAF50 50%, #388E3C 100%)'
-                : '#FFFFFF',
-              color: isUser ? 'white' : 'text.primary',
-              boxShadow: isUser 
-                ? '0 8px 24px rgba(76, 175, 80, 0.25), 0 4px 8px rgba(76, 175, 80, 0.15)'
-                : '0 4px 16px rgba(0, 0, 0, 0.08), 0 2px 4px rgba(0, 0, 0, 0.04)',
-              border: isUser ? 'none' : '1px solid rgba(0, 0, 0, 0.06)',
+                ? 'linear-gradient(135deg, #064028 0%, #0d5a3a 100%)'
+                : '#F8F9FA',
+              color: isUser ? 'white' : '#1A1A1A',
+              borderRadius: isUser ? '18px 18px 6px 18px' : '18px 18px 18px 6px',
+              px: 2,
+              py: 1.5,
               position: 'relative',
-              '&::before': isUser ? {} : {
-                content: '""',
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                right: 0,
-                bottom: 0,
-                background: 'linear-gradient(135deg, rgba(76, 175, 80, 0.02) 0%, rgba(46, 125, 50, 0.01) 100%)',
-                borderRadius: 'inherit',
-                pointerEvents: 'none'
-              }
+              wordWrap: 'break-word',
+              border: isUser ? 'none' : '1px solid #E9ECEF'
             }}
           >
             {message.type === 'thinking' ? (
@@ -731,15 +741,19 @@ const ChatWidget: React.FC = () => {
                 }}
               >
                 <AccordionSummary 
-                  expandIcon={<ExpandMoreIcon sx={{ color: 'text.secondary' }} />}
-                  sx={{ p: 0, minHeight: 'auto', '& .MuiAccordionSummary-content': { m: 0 } }}
+                  expandIcon={<ExpandMoreIcon sx={{ color: 'text.secondary', fontSize: '1rem' }} />}
+                  sx={{ 
+                    p: 0, 
+                    minHeight: 'auto', 
+                    '& .MuiAccordionSummary-content': { m: 0 } 
+                  }}
                 >
-                  <Typography variant="body2" sx={{ fontStyle: 'italic', color: 'text.secondary' }}>
-                    Thought{message.duration ? ` for ${message.duration.toFixed(1)} seconds` : ''}
+                  <Typography variant="body2" sx={{ fontStyle: 'italic', color: 'text.secondary', fontSize: '0.85rem' }}>
+                    Thinking{message.duration ? ` for ${message.duration.toFixed(1)}s` : ''}...
                   </Typography>
                 </AccordionSummary>
                 <AccordionDetails sx={{ p: '8px 0 0 0' }}>
-                  <Typography variant="body2" sx={{ fontStyle: 'italic', color: 'text.secondary' }}>
+                  <Typography variant="body2" sx={{ fontStyle: 'italic', color: 'text.secondary', fontSize: '0.85rem' }}>
                     {message.text}
                   </Typography>
                 </AccordionDetails>
@@ -752,7 +766,8 @@ const ChatWidget: React.FC = () => {
                 component="div"
                 sx={{
                   whiteSpace: 'pre-line',
-                  fontWeight: 500
+                  fontSize: '0.9rem',
+                  lineHeight: 1.4
                 }}
               >
                 {message.text}
@@ -761,8 +776,9 @@ const ChatWidget: React.FC = () => {
               <Typography 
                 variant="body2" 
                 sx={{ 
+                  fontSize: '0.9rem',
                   lineHeight: 1.5,
-                  fontWeight: isUser ? 500 : 400
+                  margin: 0
                 }}
               >
                 {message.text}
@@ -770,18 +786,6 @@ const ChatWidget: React.FC = () => {
             )}
           </Box>
         </Box>
-        <Typography 
-          variant="caption" 
-          sx={{ 
-            color: 'text.secondary', 
-            mt: 0.5,
-            mr: isUser ? 1 : 0,
-            ml: isUser ? 0 : 4.5,
-            fontSize: '0.7rem'
-          }}
-        >
-          {messageTime}
-        </Typography>
       </Box>
     );
   };
@@ -789,31 +793,28 @@ const ChatWidget: React.FC = () => {
   return (
     <>
       {!open && (
-        <Tooltip title="Open Staff Scheduler Chat Assistant" placement="left">
+        <Tooltip title="Open Staff Scheduler Assistant" placement="left">
           <IconButton
             onClick={handleToggleChat}
             sx={{ 
               position: 'fixed', 
               bottom: 24, 
               right: 24, 
-              background: 'linear-gradient(135deg, #4CAF50 0%, #2E7D32 50%, #1B5E20 100%)',
+              background: 'linear-gradient(135deg, #4CAF50 0%, #2E7D32 100%)',
               color: 'white', 
               zIndex: 1300,
-              height: 64,
-              width: 64,
-              boxShadow: '0 8px 24px rgba(76, 175, 80, 0.3), 0 4px 12px rgba(76, 175, 80, 0.2)',
-              transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+              height: 56,
+              width: 56,
+              boxShadow: '0 4px 16px rgba(76, 175, 80, 0.3)',
+              transition: 'all 0.3s ease',
               '&:hover': {
-                background: 'linear-gradient(135deg, #66BB6A 0%, #4CAF50 50%, #2E7D32 100%)',
+                background: 'linear-gradient(135deg, #66BB6A 0%, #4CAF50 100%)',
                 transform: 'translateY(-2px)',
-                boxShadow: '0 12px 32px rgba(76, 175, 80, 0.4), 0 6px 16px rgba(76, 175, 80, 0.25)',
-              },
-              '&:active': {
-                transform: 'translateY(0px)',
+                boxShadow: '0 8px 24px rgba(76, 175, 80, 0.4)',
               }
             }}
           >
-            <ChatIcon fontSize="large" />
+            <PsychologyIcon />
           </IconButton>
         </Tooltip>
       )}
@@ -821,148 +822,116 @@ const ChatWidget: React.FC = () => {
         <Box 
           sx={{ 
             position: 'fixed', 
-            bottom: 24, 
-            right: 24, 
-            width: 400, 
-            height: minimized ? 'auto' : 700, 
+            bottom: 20, 
+            right: 20, 
+            width: 380, 
+            height: minimized ? 'auto' : 660, 
             zIndex: 1300,
-            borderRadius: 3,
+            borderRadius: 4,
             overflow: 'hidden',
-            background: 'linear-gradient(145deg, rgba(245, 245, 245, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%)',
-            boxShadow: '0 24px 48px rgba(0, 0, 0, 0.15), 0 12px 24px rgba(0, 0, 0, 0.1)',
-            backdropFilter: 'blur(20px)',
-            border: '1px solid rgba(255, 255, 255, 0.2)'
+            backgroundColor: '#FFFFFF',
+            boxShadow: '0 20px 40px rgba(0, 0, 0, 0.1), 0 8px 16px rgba(0, 0, 0, 0.06)',
+            border: '1px solid #E9ECEF'
           }}
         >
           <Paper 
             elevation={0} 
             sx={{ 
-              bgcolor: 'transparent', 
-              color: 'black', 
+              bgcolor: 'white', 
               height: minimized ? 'auto' : '100%', 
               display: 'flex', 
               flexDirection: 'column',
-              background: 'transparent'
+              borderRadius: 4
             }}
           >
-            {/* Header with gradient background */}
+            {/* Clean header */}
             <Box 
               sx={{ 
-                p: 2.5, 
-                background: 'linear-gradient(135deg, #4CAF50 0%, #2E7D32 50%, #1B5E20 100%)',
-                color: 'white',
+                p: 2, 
+                backgroundColor: '#FFFFFF',
+                borderBottom: '1px solid #F1F3F4',
                 display: 'flex', 
                 justifyContent: 'space-between', 
                 alignItems: 'center',
-                cursor: 'pointer',
-                transition: 'all 0.3s ease',
-                borderRadius: minimized ? '12px' : '0',
-                '&:hover': {
-                  background: 'linear-gradient(135deg, #66BB6A 0%, #4CAF50 50%, #2E7D32 100%)'
-                }
+                cursor: 'pointer'
               }}
               onClick={handleHeaderClick}
             >
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                 <Avatar
                   sx={{
                     width: 32,
                     height: 32,
-                    background: 'linear-gradient(135deg, rgba(255, 255, 255, 0.2) 0%, rgba(255, 255, 255, 0.1) 100%)',
-                    color: 'white'
+                    background: 'linear-gradient(135deg, #064028 0%, #0d5a3a 100%)',
+                    color: 'white',
+                    fontSize: '1rem'
                   }}
                 >
-                  <SmartToyIcon fontSize="small" />
+                  <PsychologyIcon fontSize="small" />
                 </Avatar>
-                <Typography variant="h6" sx={{ fontWeight: 600, fontSize: '1.1rem' }}>
+                <Typography variant="subtitle1" sx={{ fontWeight: 600, color: '#1A1A1A' }}>
                   Staff Scheduler Assistant
                 </Typography>
               </Box>
               <Box sx={{ display: 'flex', gap: 0.5 }}>
-                <Tooltip title={minimized ? "Maximize Chat" : "Minimize Chat"}>
-                  <IconButton 
-                    size="small" 
-                    sx={{ 
-                      color: 'white',
-                      '&:hover': { bgcolor: 'rgba(255, 255, 255, 0.1)' }
-                    }}
-                  >
-                    <MinimizeIcon />
-                  </IconButton>
-                </Tooltip>
-                <Tooltip title="More Options">
-                  <IconButton 
-                    size="small" 
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleMenuOpen(e);
-                    }} 
-                    sx={{ 
-                      color: 'white',
-                      '&:hover': { bgcolor: 'rgba(255, 255, 255, 0.1)' }
-                    }}
-                  >
-                    <MoreVertIcon />
-                  </IconButton>
-                </Tooltip>
-                <Tooltip title="Close Chat">
-                  <IconButton 
-                    size="small" 
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setOpen(false);
-                    }} 
-                    sx={{ 
-                      color: 'white',
-                      '&:hover': { bgcolor: 'rgba(255, 255, 255, 0.1)' }
-                    }}
-                  >
-                    <CloseIcon />
-                  </IconButton>
-                </Tooltip>
+                <IconButton 
+                  size="small" 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleMenuOpen(e);
+                  }}
+                  sx={{ 
+                    color: '#6B7280',
+                    '&:hover': { bgcolor: '#F3F4F6' }
+                  }}
+                >
+                  <MoreVertIcon fontSize="small" />
+                </IconButton>
+                <IconButton 
+                  size="small" 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setOpen(false);
+                  }}
+                  sx={{ 
+                    color: '#6B7280',
+                    '&:hover': { bgcolor: '#F3F4F6' }
+                  }}
+                >
+                  <CloseIcon fontSize="small" />
+                </IconButton>
               </Box>
             </Box>
             
-            {/* 3-dots menu */}
+            {/* Menu */}
             <Menu
               anchorEl={menuAnchor}
               open={Boolean(menuAnchor)}
               onClose={handleMenuClose}
-              anchorOrigin={{
-                vertical: 'bottom',
-                horizontal: 'right',
-              }}
-              transformOrigin={{
-                vertical: 'top',
-                horizontal: 'right',
-              }}
+              anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+              transformOrigin={{ vertical: 'top', horizontal: 'right' }}
               PaperProps={{ 
                 sx: { 
                   bgcolor: 'white',
                   borderRadius: 2,
                   boxShadow: '0 8px 24px rgba(0, 0, 0, 0.12)',
-                  border: '1px solid rgba(0, 0, 0, 0.08)'
+                  border: '1px solid #E9ECEF'
                 } 
               }}
             >
               <MenuItem 
                 onClick={clearChat}
-                sx={{
-                  '&:hover': {
-                    bgcolor: 'rgba(76, 175, 80, 0.04)'
-                  }
-                }}
+                sx={{ '&:hover': { bgcolor: '#F8F9FA' } }}
               >
-                <ClearIcon sx={{ mr: 1, color: 'text.secondary' }} />
-                Clear Chat History
+                <ClearIcon sx={{ mr: 1, color: '#6B7280', fontSize: '1.1rem' }} />
+                Clear Chat
               </MenuItem>
             </Menu>
 
-            {/* Show the rest of the chat only when not minimized */}
             {!minimized && (
               <>
-                {/* Mode toggle section */}
-                <Box sx={{ p: 2, bgcolor: 'rgba(255, 255, 255, 0.8)', backdropFilter: 'blur(10px)' }}>
+                {/* Mode toggle - cleaner design */}
+                <Box sx={{ p: 2, borderBottom: '1px solid #F1F3F4' }}>
                   <ToggleButtonGroup
                     value={mode}
                     exclusive
@@ -970,178 +939,140 @@ const ChatWidget: React.FC = () => {
                     size="small"
                     fullWidth
                     sx={{ 
-                      mb: 0,
                       '& .MuiToggleButton-root': {
-                        border: '1px solid rgba(76, 175, 80, 0.2)',
+                        border: '1px solid #E5E7EB',
                         borderRadius: '12px !important',
                         px: 2,
-                        py: 1.5,
+                        py: 1,
+                        fontSize: '0.85rem',
+                        textTransform: 'none',
                         '&:first-of-type': {
-                          marginRight: 1,
+                          marginRight: 0.5,
                           borderTopRightRadius: '12px !important',
                           borderBottomRightRadius: '12px !important'
                         },
                         '&:last-of-type': {
                           borderTopLeftRadius: '12px !important',
                           borderBottomLeftRadius: '12px !important'
+                        },
+                        '&.Mui-selected': {
+                          background: 'linear-gradient(135deg, #064028 0%, #0d5a3a 100%)',
+                          color: 'white',
+                          border: '1px solid #064028',
+                          fontWeight: 500
+                        },
+                        '&:not(.Mui-selected)': {
+                          color: '#6B7280',
+                          '&:hover': { bgcolor: '#F9FAFB' }
                         }
                       }
                     }}
                   >
-                    <ToggleButton 
-                      value="ask" 
-                      sx={{ 
-                        '&.Mui-selected': {
-                          background: 'linear-gradient(135deg, #4CAF50 0%, #388E3C 100%)',
-                          color: 'white',
-                          fontWeight: 600,
-                          '&:hover': {
-                            background: 'linear-gradient(135deg, #66BB6A 0%, #4CAF50 100%)',
-                          }
-                        },
-                        '&:not(.Mui-selected)': {
-                          color: 'text.primary',
-                          '&:hover': {
-                            bgcolor: 'rgba(76, 175, 80, 0.04)'
-                          }
-                        }
-                      }}
-                    >
-                      <ChatIcon sx={{ mr: 1 }} />
+                    <ToggleButton value="ask">
+                      <ChatIcon sx={{ mr: 1, fontSize: '1rem' }} />
                       Ask
                     </ToggleButton>
-                    <ToggleButton 
-                      value="agent" 
-                      sx={{ 
-                        '&.Mui-selected': {
-                          background: 'linear-gradient(135deg, #2E7D32 0%, #1B5E20 100%)',
-                          color: 'white',
-                          fontWeight: 600,
-                          '&:hover': {
-                            background: 'linear-gradient(135deg, #4CAF50 0%, #2E7D32 100%)',
-                          }
-                        },
-                        '&:not(.Mui-selected)': {
-                          color: 'text.primary',
-                          '&:hover': {
-                            bgcolor: 'rgba(76, 175, 80, 0.04)'
-                          }
-                        }
-                      }}
-                    >
-                      <ManageAccountsIcon sx={{ mr: 1 }} />
+                    <ToggleButton value="agent">
+                      <ManageAccountsIcon sx={{ mr: 1, fontSize: '1rem' }} />
                       Agent
                     </ToggleButton>
                   </ToggleButtonGroup>
                 </Box>
                 
-                {/* Messages area with better styling */}
+                {/* Messages area - clean background */}
                 <Box 
                   sx={{ 
-                    flex: 1, 
+                    flex: 1,
                     overflowY: 'auto',
-                    background: 'linear-gradient(180deg, rgba(248, 250, 252, 0.8) 0%, rgba(255, 255, 255, 0.9) 100%)',
+                    backgroundColor: '#FAFBFC',
                     position: 'relative',
-                    '&::-webkit-scrollbar': {
-                      width: 6,
-                    },
-                    '&::-webkit-scrollbar-track': {
-                      background: 'transparent',
-                    },
-                    '&::-webkit-scrollbar-thumb': {
-                      background: 'rgba(76, 175, 80, 0.3)',
-                      borderRadius: 3,
-                      '&:hover': {
-                        background: 'rgba(76, 175, 80, 0.5)',
-                      }
-                    }
+                    '&::-webkit-scrollbar': { width: 0 }
                   }}
                 >
-                  <Box sx={{ p: 2, pt: 3 }}>
+                  <Box sx={{ py: 2 }}>
                     {messages.map((message, idx) => renderMessage(message, idx))}
                     <div ref={messagesEndRef} />
                   </Box>
                 </Box>
                 
-                {/* Input area with modern styling */}
-                <Box 
-                  sx={{ 
-                    p: 2, 
-                    background: 'rgba(255, 255, 255, 0.95)',
-                    backdropFilter: 'blur(10px)',
-                    borderTop: '1px solid rgba(0, 0, 0, 0.06)'
-                  }}
+                                 {/* Bottom input area with gradient - like the reference image */}
+                 <Box 
+                   sx={{ 
+                     background: 'linear-gradient(135deg, #064028 0%, #0d5a3a 50%, #1b5e20 100%)',
+                     p: 2,
+                     borderTop: '1px solid #E9ECEF'
+                   }}
                 >
                   {(mode === 'ask' || mode === 'agent') && (
-                    <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: 1.5 }}>
-                      <TextField
-                        variant="outlined"
-                        size="small"
-                        fullWidth
-                        placeholder="Ask me anything..."
-                        value={input}
-                        onChange={(e) => setInput(e.target.value)}
-                        onKeyPress={(e) => {
-                          if (e.key === 'Enter' && !e.shiftKey) {
-                            e.preventDefault();
-                            sendMessage();
-                          }
-                        }}
-                        disabled={loading}
-                        multiline
-                        maxRows={3}
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                      <IconButton
                         sx={{
-                          '& .MuiOutlinedInput-root': {
-                            borderRadius: 3,
-                            bgcolor: 'white',
-                            boxShadow: '0 2px 8px rgba(0, 0, 0, 0.04)',
-                            border: '1px solid rgba(0, 0, 0, 0.08)',
-                            transition: 'all 0.2s ease',
-                            '&:hover': {
-                              borderColor: 'rgba(76, 175, 80, 0.3)',
-                              boxShadow: '0 4px 12px rgba(76, 175, 80, 0.08)',
-                            },
-                            '&.Mui-focused': {
-                              borderColor: '#4CAF50',
-                              boxShadow: '0 4px 12px rgba(76, 175, 80, 0.15)',
-                            }
-                          },
-                          '& .MuiOutlinedInput-input': {
-                            py: 1.5,
-                            px: 2,
-                            fontSize: '0.9rem'
-                          }
+                          backgroundColor: 'rgba(255, 255, 255, 0.9)',
+                          color: '#4CAF50',
+                          width: 40,
+                          height: 40,
+                          '&:hover': { backgroundColor: 'white' }
                         }}
-                      />
+                      >
+                        <AddIcon />
+                      </IconButton>
                       
-                      <IconButton 
-                        onClick={sendMessage} 
+                      <Box sx={{ flex: 1, position: 'relative' }}>
+                        <TextField
+                          variant="outlined"
+                          fullWidth
+                          placeholder="Ask me anything..."
+                          value={input}
+                          onChange={(e) => setInput(e.target.value)}
+                          onKeyPress={(e) => {
+                            if (e.key === 'Enter' && !e.shiftKey) {
+                              e.preventDefault();
+                              sendMessage();
+                            }
+                          }}
+                          disabled={loading}
+                          multiline
+                          maxRows={3}
+                          sx={{
+                            '& .MuiOutlinedInput-root': {
+                              backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                              borderRadius: 6,
+                              border: 'none',
+                              fontSize: '0.9rem',
+                              minHeight: '36px',
+                              '& fieldset': { border: 'none' },
+                              '&:hover fieldset': { border: 'none' },
+                              '&.Mui-focused fieldset': { border: 'none' }
+                            },
+                            '& .MuiOutlinedInput-input': {
+                              py: 0.5,
+                              px: 2,
+                              height: '16px'
+                            }
+                          }}
+                        />
+                      </Box>
+
+                      <IconButton
+                        onClick={sendMessage}
                         disabled={loading || !input.trim()}
-                        sx={{ 
-                          background: loading || !input.trim() 
-                            ? 'rgba(0, 0, 0, 0.12)' 
-                            : 'linear-gradient(135deg, #4CAF50 0%, #2E7D32 100%)',
-                          color: 'white',
-                          width: 48,
-                          height: 48,
-                          borderRadius: 2,
-                          transition: 'all 0.2s ease',
-                          '&:hover': !loading && input.trim() ? {
-                            background: 'linear-gradient(135deg, #66BB6A 0%, #4CAF50 100%)',
-                            transform: 'translateY(-1px)',
-                            boxShadow: '0 6px 16px rgba(76, 175, 80, 0.25)',
-                          } : {},
-                          '&:disabled': {
-                            background: 'rgba(0, 0, 0, 0.12)',
-                            color: 'rgba(0, 0, 0, 0.26)'
-                          }
+                        sx={{
+                          backgroundColor: loading || !input.trim() 
+                            ? 'rgba(255, 255, 255, 0.5)' 
+                            : 'rgba(255, 255, 255, 0.9)',
+                          color: loading || !input.trim() 
+                            ? 'rgba(76, 175, 80, 0.5)' 
+                            : '#4CAF50',
+                          width: 40,
+                          height: 40,
+                          '&:hover': !loading && input.trim() ? { 
+                            backgroundColor: 'white',
+                            boxShadow: '0 2px 8px rgba(76, 175, 80, 0.15)'
+                          } : {}
                         }}
                       >
                         {loading ? (
-                          <CircularProgress 
-                            size={20} 
-                            sx={{ color: 'rgba(0, 0, 0, 0.26)' }} 
-                          />
+                          <CircularProgress size={20} sx={{ color: 'rgba(76, 175, 80, 0.5)' }} />
                         ) : (
                           <SendIcon />
                         )}
