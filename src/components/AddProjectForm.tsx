@@ -102,7 +102,7 @@ const AddProjectForm: React.FC<AddProjectFormProps> = ({ open, onClose, onAdd, o
       newErrors.name = 'Project name must be at least 2 characters long';
     } else if (formData.name.trim().length > 100) {
       newErrors.name = 'Project name must be less than 100 characters';
-    } else if (!/^[a-zA-Z0-9\s\-]+$/.test(formData.name.trim())) {
+    } else if (!/^[a-zA-Z0-9\s-]+$/.test(formData.name.trim())) {
       newErrors.name = 'Project name can only contain letters, numbers, spaces, and hyphens';
     }
     

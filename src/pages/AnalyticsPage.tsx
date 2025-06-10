@@ -33,10 +33,13 @@ import { parseISO, isWithinInterval, addDays, addMonths, format, getDaysInMonth 
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
 import { Bar, Doughnut } from 'react-chartjs-2';
-import { useSelector } from 'react-redux';
+import { useSelector, useDispatch } from 'react-redux';
+import axios from 'axios';
 
 import NavigationBar from '../components/NavigationBar';
 import { RootState } from '../store';
+import { setStaffMembers } from '../store/slices/staffSlice';
+import { setProjects, updateProject, addProject } from '../store/slices/projectSlice';
 
 ChartJS.register(
   CategoryScale,
@@ -50,6 +53,7 @@ ChartJS.register(
 );
 
 const AnalyticsPage: React.FC = () => {
+  const dispatch = useDispatch();
   const [timeframe, setTimeframe] = useState<'weekly' | 'monthly' | 'overall'>('overall');
   const [startDate, setStartDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
   const displayStartDate = useMemo(() => format(parseISO(startDate), 'dd/MM/yyyy'), [startDate]);
@@ -60,6 +64,51 @@ const AnalyticsPage: React.FC = () => {
   const staffMembers = useSelector((state: RootState) => state.staff.staffMembers);
   const gradeRates = useSelector((state: RootState) => state.settings.globalRules.gradeRates);
   const projects = useSelector((state: RootState) => state.projects.projects);
+
+  // Load fresh data when component mounts
+  useEffect(() => {
+    const loadInitialData = async () => {
+      try {
+        // Load fresh staff and project data from API
+        const [staffRes, projRes] = await Promise.all([
+          axios.get('/api/staff'),
+          axios.get('/api/projects'),
+        ]);
+        dispatch(setStaffMembers(staffRes.data));
+        dispatch(setProjects(projRes.data));
+      } catch (err) {
+        console.error('Error loading fresh data', err);
+      }
+    };
+    
+    loadInitialData();
+  }, [dispatch]);
+
+  // Listen for project updates from other pages
+  useEffect(() => {
+    const handleProjectUpdate = async (event: CustomEvent) => {
+      console.log('[AnalyticsPage] Received projectUpdated event', event.detail);
+      
+      // Update the project in Redux store
+      const updatedProject = event.detail.updatedProject;
+      dispatch(updateProject(updatedProject));
+    };
+
+    const handleProjectAdd = async (event: CustomEvent) => {
+      console.log('[AnalyticsPage] Received projectAdded event', event.detail);
+      
+      // Add the project to Redux store
+      const newProject = event.detail.newProject;
+      dispatch(addProject(newProject));
+    };
+    
+    window.addEventListener('projectUpdated', handleProjectUpdate as EventListener);
+    window.addEventListener('projectAdded', handleProjectAdd as EventListener);
+    return () => {
+      window.removeEventListener('projectUpdated', handleProjectUpdate as EventListener);
+      window.removeEventListener('projectAdded', handleProjectAdd as EventListener);
+    };
+  }, [dispatch]);
 
   const filteredTasks = useMemo(() => {
     if (timeframe === 'weekly') {

@@ -229,6 +229,12 @@ export const useAddPageManager = () => {
     try {
       const res = await axios.post('/api/projects', newProject);
       dispatch(addProject(res.data));
+      
+      // Dispatch custom event to notify other pages about the new project
+      window.dispatchEvent(new CustomEvent('projectAdded', { 
+        detail: { newProject: res.data } 
+      }));
+      
       setSnackbar({ open: true, message: 'Project added successfully', severity: 'success' });
     } catch (err: any) {
       console.error('Error adding project', err);
@@ -581,6 +587,12 @@ export const useAddPageManager = () => {
     try {
       const res = await axios.put(`/api/projects/${updated.id}`, updated);
       dispatch(updateProject(res.data));
+      
+      // Dispatch custom event to notify other pages about the project update
+      window.dispatchEvent(new CustomEvent('projectUpdated', { 
+        detail: { updatedProject: res.data } 
+      }));
+      
       setSnackbar({ open: true, message: 'Project updated successfully', severity: 'success' });
     } catch (err: any) {
       console.error('Error updating project', err);

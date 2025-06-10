@@ -25,7 +25,8 @@ import WeeklyAssignmentDialog from '../components/schedule/WeeklyAssignmentDialo
 import { useScheduleManager } from '../hooks/useScheduleManager';
 import { RootState } from '../store';
 import { clearSchedule, clearScheduleForStaff, setTasks, setStartDate, removeRange } from '../store/slices/scheduleSlice';
-import { StaffMember } from '../store/slices/staffSlice';
+import { StaffMember, setStaffMembers } from '../store/slices/staffSlice';
+import { setProjects, updateProject, addProject } from '../store/slices/projectSlice';
 import { isAtEndDate as checkIsAtEndDate } from '../utils/ScheduleUtils';
 
 const SchedulingPage: React.FC = () => {
@@ -50,10 +51,25 @@ const SchedulingPage: React.FC = () => {
     }
   }, [dispatch]);
 
-  // Load assignments on mount
+  // Load assignments and fresh data on mount
   useEffect(() => {
+    const loadInitialData = async () => {
+      try {
+        // Load fresh staff and project data from API
+        const [staffRes, projRes] = await Promise.all([
+          axios.get('/api/staff'),
+          axios.get('/api/projects'),
+        ]);
+        dispatch(setStaffMembers(staffRes.data));
+        dispatch(setProjects(projRes.data));
+      } catch (err) {
+        console.error('Error loading fresh data', err);
+      }
+    };
+    
+    loadInitialData();
     loadAssignments();
-  }, [loadAssignments]);
+  }, [loadAssignments, dispatch]);
 
   // Refresh assignments when calendar requests a refresh
   useEffect(() => {
@@ -66,6 +82,35 @@ const SchedulingPage: React.FC = () => {
       window.removeEventListener('refreshCalendar', handleRefresh);
     };
   }, [loadAssignments]);
+
+  // Listen for project updates from other pages
+  useEffect(() => {
+    const handleProjectUpdate = async (event: CustomEvent) => {
+      console.log('[SchedulingPage] Received projectUpdated event', event.detail);
+      
+      // Update the project in Redux store
+      const updatedProject = event.detail.updatedProject;
+      dispatch(updateProject(updatedProject));
+      
+      // Optionally reload assignments to get fresh task data
+      loadAssignments();
+    };
+
+    const handleProjectAdd = async (event: CustomEvent) => {
+      console.log('[SchedulingPage] Received projectAdded event', event.detail);
+      
+      // Add the project to Redux store
+      const newProject = event.detail.newProject;
+      dispatch(addProject(newProject));
+    };
+    
+    window.addEventListener('projectUpdated', handleProjectUpdate as EventListener);
+    window.addEventListener('projectAdded', handleProjectAdd as EventListener);
+    return () => {
+      window.removeEventListener('projectUpdated', handleProjectUpdate as EventListener);
+      window.removeEventListener('projectAdded', handleProjectAdd as EventListener);
+    };
+  }, [dispatch, loadAssignments]);
   
   // Get data from Redux store
   const staffMembers = useSelector((state: RootState) => state.staff.staffMembers);
