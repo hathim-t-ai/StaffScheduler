@@ -188,7 +188,7 @@ const AddPage: React.FC = () => {
             {/* People Tab Content */}
             <TabPanel value={tabValue} index={0}>
               <Box sx={{ display: 'flex', alignItems: 'center', mb: 2, bgcolor: 'background.default', color: 'common.white', px: 2, py: 1 }}>
-                <Typography variant="h5" sx={{ color: 'common.white' }}>Staff</Typography>
+                <Typography variant="h5" sx={{ color: 'common.white' }}>People</Typography>
                 <Box sx={{ ml: 'auto', display: 'flex', alignItems: 'center', gap: 1 }}>
                   {selectedStaffIds.length > 0 && (
                     <>
