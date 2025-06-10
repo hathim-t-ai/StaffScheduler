@@ -3,7 +3,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 
 // Import Material UI components
 import DeleteIcon from '@mui/icons-material/Delete';
-import { Container, Box, Button, Dialog, DialogTitle, DialogContent, DialogActions, Typography, Paper } from '@mui/material';
+import EmailIcon from '@mui/icons-material/Email';
+import { Container, Box, Button, Dialog, DialogTitle, DialogContent, DialogActions, Typography, Paper, Switch, FormControlLabel } from '@mui/material';
 
 // Import Redux and API utilities
 import axios from 'axios';
@@ -27,6 +28,7 @@ import { RootState } from '../store';
 import { clearSchedule, clearScheduleForStaff, setTasks, setStartDate, removeRange } from '../store/slices/scheduleSlice';
 import { StaffMember, setStaffMembers } from '../store/slices/staffSlice';
 import { setProjects, updateProject, addProject } from '../store/slices/projectSlice';
+import { updateEmailSettings } from '../store/slices/settingsSlice';
 import { isAtEndDate as checkIsAtEndDate } from '../utils/ScheduleUtils';
 
 const SchedulingPage: React.FC = () => {
@@ -115,6 +117,13 @@ const SchedulingPage: React.FC = () => {
   // Get data from Redux store
   const staffMembers = useSelector((state: RootState) => state.staff.staffMembers);
   const projects = useSelector((state: RootState) => state.projects.projects);
+  const emailSettings = useSelector((state: RootState) => state.settings.emailSettings || {
+    enabled: false,
+    reminderDay: 'thursday' as const,
+    reminderTime: '14:00',
+    fromEmail: 'hathimamirb@gmail.com',
+    thresholdHours: 40
+  });
   
   // State for filtered staff members
   const [filteredStaff, setFilteredStaff] = useState(staffMembers);
@@ -267,6 +276,11 @@ const SchedulingPage: React.FC = () => {
     dispatch(setStartDate(iso));
   };
   
+  // Handler for email reminder toggle
+  const handleEmailReminderToggle = (event: React.ChangeEvent<HTMLInputElement>) => {
+    dispatch(updateEmailSettings({ enabled: event.target.checked }));
+  };
+  
   return (
     <Container maxWidth={false} disableGutters>
       <NavigationBar title="Schedule" />
@@ -297,6 +311,25 @@ const SchedulingPage: React.FC = () => {
               <Button variant="outlined" size="small" onClick={handleGoToCurrentWeek}>
                 Current Week
               </Button>
+              {/* Email Reminder Toggle */}
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={emailSettings.enabled}
+                    onChange={handleEmailReminderToggle}
+                    name="emailReminder"
+                    color="primary"
+                    size="small"
+                  />
+                }
+                label={
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                    <EmailIcon fontSize="small" />
+                    <Typography variant="body2">Email Reminders</Typography>
+                  </Box>
+                }
+                sx={{ ml: 2 }}
+              />
               {/* Clear Schedule button */}
               <Button variant="outlined" color="error" startIcon={<DeleteIcon />} onClick={handleOpenClearDialog} size="small" sx={{ ml: 'auto' }}>
                 Clear Schedule

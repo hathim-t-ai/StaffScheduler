@@ -22,7 +22,8 @@ import { useSelector, useDispatch } from 'react-redux';
 
 import NavigationBar from '../components/NavigationBar';
 import { RootState } from '../store';
-import { updateGlobalRules } from '../store/slices/settingsSlice';
+import { updateGlobalRules, updateEmailSettings } from '../store/slices/settingsSlice';
+import { useEmailSettings } from '../hooks/useEmailSettings';
 
 // TabPanel component for tab content
 interface TabPanelProps {
@@ -54,6 +55,14 @@ const TabPanel = (props: TabPanelProps) => {
 const SettingsPage: React.FC = () => {
   const dispatch = useDispatch();
   const gradeRates = useSelector((state: RootState) => state.settings.globalRules.gradeRates);
+  const emailSettings = useSelector((state: RootState) => state.settings.emailSettings || {
+    enabled: false,
+    reminderDay: 'thursday' as const,
+    reminderTime: '14:00',
+    fromEmail: 'hathimamirb@gmail.com',
+    thresholdHours: 40
+  });
+  const { updateSettings: updateEmailSettingsHook } = useEmailSettings();
   const [tabValue, setTabValue] = useState(0);
   
   // Mock state for global settings
@@ -77,6 +86,17 @@ const SettingsPage: React.FC = () => {
     setColorScheme(event.target.value);
   };
 
+  const handleSaveEmailSettings = async () => {
+    try {
+      await updateEmailSettingsHook(emailSettings);
+      // Could add a success notification here
+      console.log('Email settings saved successfully');
+    } catch (error) {
+      console.error('Failed to save email settings:', error);
+      // Could add an error notification here
+    }
+  };
+
   return (
     <Container maxWidth={false} disableGutters sx={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
       <NavigationBar title="Settings" />
@@ -98,6 +118,7 @@ const SettingsPage: React.FC = () => {
             <Tab label="Global Rules" id="tab-0" aria-controls="tabpanel-0" />
             <Tab label="Project Rules" id="tab-1" aria-controls="tabpanel-1" />
             <Tab label="System Preferences" id="tab-2" aria-controls="tabpanel-2" />
+            <Tab label="Email Settings" id="tab-3" aria-controls="tabpanel-3" />
           </Tabs>
           
           {/* Global Rules Tab */}
@@ -262,6 +283,108 @@ const SettingsPage: React.FC = () => {
               </Button>
               <Button variant="contained" color="primary">
                 Save Preferences
+              </Button>
+            </Box>
+          </TabPanel>
+          
+          {/* Email Settings Tab */}
+          <TabPanel value={tabValue} index={3}>
+            <Typography variant="h2" gutterBottom>
+              Email Settings
+            </Typography>
+            
+            <Box sx={{ mt: 4 }}>
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={emailSettings.enabled}
+                    onChange={(e) => dispatch(updateEmailSettings({ enabled: e.target.checked }))}
+                    name="emailEnabled"
+                    color="primary"
+                  />
+                }
+                label="Enable Email Reminders"
+                sx={{ mb: 3 }}
+              />
+              
+              <Typography variant="h6" gutterBottom sx={{ mt: 4 }}>
+                Automatic Reminder Schedule
+              </Typography>
+              <Typography variant="body2" color="textSecondary" sx={{ mb: 2 }}>
+                Configure when automatic email reminders should be sent to staff with incomplete schedules
+              </Typography>
+              
+              <FormControl fullWidth sx={{ mb: 3 }}>
+                <InputLabel id="reminder-day-label">Reminder Day</InputLabel>
+                <Select
+                  labelId="reminder-day-label"
+                  id="reminder-day"
+                  value={emailSettings.reminderDay}
+                  label="Reminder Day"
+                  onChange={(e) => dispatch(updateEmailSettings({ reminderDay: e.target.value as any }))}
+                >
+                  <MenuItem value="monday">Monday</MenuItem>
+                  <MenuItem value="tuesday">Tuesday</MenuItem>
+                  <MenuItem value="wednesday">Wednesday</MenuItem>
+                  <MenuItem value="thursday">Thursday</MenuItem>
+                  <MenuItem value="friday">Friday</MenuItem>
+                  <MenuItem value="saturday">Saturday</MenuItem>
+                  <MenuItem value="sunday">Sunday</MenuItem>
+                </Select>
+              </FormControl>
+              
+              <TextField
+                id="reminder-time"
+                label="Reminder Time"
+                type="time"
+                value={emailSettings.reminderTime}
+                onChange={(e) => dispatch(updateEmailSettings({ reminderTime: e.target.value }))}
+                fullWidth
+                sx={{ mb: 3 }}
+                InputLabelProps={{
+                  shrink: true,
+                }}
+                inputProps={{
+                  step: 300, // 5 min
+                }}
+                helperText="Time in 24-hour format (e.g., 14:00 for 2:00 PM)"
+              />
+              
+              <TextField
+                id="threshold-hours"
+                label="Minimum Required Hours"
+                type="number"
+                value={emailSettings.thresholdHours}
+                onChange={(e) => dispatch(updateEmailSettings({ thresholdHours: Number(e.target.value) }))}
+                fullWidth
+                sx={{ mb: 3 }}
+                helperText="Staff with fewer than this many hours scheduled will receive reminders"
+              />
+              
+              <TextField
+                id="from-email"
+                label="From Email Address"
+                type="email"
+                value={emailSettings.fromEmail}
+                onChange={(e) => dispatch(updateEmailSettings({ fromEmail: e.target.value }))}
+                fullWidth
+                sx={{ mb: 3 }}
+                helperText="The email address that reminders will be sent from"
+              />
+              
+              <Typography variant="h6" gutterBottom sx={{ mt: 4 }}>
+                Preview
+              </Typography>
+              <Typography variant="body2" color="textSecondary" sx={{ mb: 2 }}>
+                Automatic reminders will be sent every {emailSettings.reminderDay} at {emailSettings.reminderTime} to staff with less than {emailSettings.thresholdHours} hours scheduled for the following week.
+              </Typography>
+            </Box>
+            
+            <Divider sx={{ my: 4 }} />
+            
+            <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <Button variant="contained" color="primary" onClick={handleSaveEmailSettings}>
+                Save Email Settings
               </Button>
             </Box>
           </TabPanel>

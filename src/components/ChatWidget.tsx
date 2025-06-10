@@ -313,6 +313,46 @@ const ChatWidget: React.FC = () => {
       scrollToBottom();
       return;
     }
+    // Intercept email reminder requests (e.g., "send reminder to John", "can you send a reminder to John to fill in the scheduler")
+    const emailReminderMatch = lower.match(/(?:send|can\s+you\s+send).*?reminder.*?(?:to\s+)([a-z][a-z\s]+)/i);
+    if (emailReminderMatch) {
+      let staffName = emailReminderMatch[1].trim();
+      // Clean up the staff name by removing common trailing words and phrases
+      staffName = staffName.replace(/\s+(to\s+(complete|fill)|about|for\s+(next|the)|that|please|his|her|their|the\s+(scheduler|schedule)|complete|fill\s+in|scheduler|schedule|next\s+week).*$/i, '').trim();
+      // Show user message
+      setMessages(prev => [...prev, { sender: 'user', text: input, timestamp: new Date(), type: 'text' }]);
+      setInput('');
+      
+      try {
+        const res = await axios.post('/api/email/send-custom-reminder', { staffName });
+        if (res.data.success) {
+          setMessages(prev => [...prev, { 
+            sender: 'bot', 
+            text: `✅ Email reminder sent successfully to ${res.data.staffName} (${res.data.email}). They currently have ${res.data.assignedHours} hours assigned for next week.`, 
+            timestamp: new Date(), 
+            type: 'text' 
+          }]);
+        } else {
+          setMessages(prev => [...prev, { 
+            sender: 'bot', 
+            text: `❌ Failed to send reminder: ${res.data.message}`, 
+            timestamp: new Date(), 
+            type: 'text' 
+          }]);
+        }
+      } catch (error: any) {
+        console.error('Email reminder error:', error);
+        const errorMessage = error.response?.data?.message || error.message || 'Unknown error occurred';
+        setMessages(prev => [...prev, { 
+          sender: 'bot', 
+          text: `❌ Failed to send email reminder: ${errorMessage}`, 
+          timestamp: new Date(), 
+          type: 'text' 
+        }]);
+      }
+      scrollToBottom();
+      return;
+    }
     // Intercept generate report requests (Agent mode only)
     if (lower.includes('generate') && lower.includes('report')) {
       if (mode !== 'agent') {

@@ -577,6 +577,36 @@ async function aggregateProjects({ groupBy, metrics = ['count'], filter = {}, so
   return { result };
 }
 
+/**
+ * Send email reminder to a specific staff member (for chatbot)
+ */
+async function sendEmailReminder({ staffName }) {
+  try {
+    const emailService = require('./services/emailService');
+    
+    if (!staffName) {
+      return { error: 'Staff name is required' };
+    }
+
+    const result = await emailService.sendCustomReminder(staffName);
+    
+    return {
+      success: true,
+      message: `Email reminder sent successfully to ${result.staffName} (${result.email}). They currently have ${result.assignedHours} hours assigned for next week.`,
+      staffName: result.staffName,
+      email: result.email,
+      assignedHours: result.assignedHours
+    };
+  } catch (error) {
+    console.error('Chat sendEmailReminder error:', error);
+    return {
+      success: false,
+      error: error.message,
+      message: `Failed to send reminder: ${error.message}`
+    };
+  }
+}
+
 /* ------------------------------------------------------------------ */
 /* 5. Exports                                                         */
 /* ------------------------------------------------------------------ */
@@ -601,5 +631,6 @@ module.exports = {
   parseReplacement,
 
   // fast path
-  directBooking
+  directBooking,
+  sendEmailReminder
 };

@@ -15,10 +15,24 @@ const rootReducer = combineReducers({
   settings: settingsReducer,
 });
 
-// Persist configuration
+// Persist configuration with migration
 const persistConfig = {
   key: 'root',
   storage,
+  version: 1,
+  migrate: (state: any) => {
+    // Ensure emailSettings exists in the persisted state
+    if (state && state.settings && !state.settings.emailSettings) {
+      state.settings.emailSettings = {
+        enabled: false,
+        reminderDay: 'thursday',
+        reminderTime: '14:00',
+        fromEmail: 'hathimamirb@gmail.com',
+        thresholdHours: 40
+      };
+    }
+    return Promise.resolve(state);
+  }
 };
 const persistedReducer = persistReducer(persistConfig, rootReducer);
 

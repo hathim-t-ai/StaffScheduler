@@ -24,10 +24,19 @@ export interface SystemPreferences {
   defaultView: 'day' | 'week' | 'month';
 }
 
+export interface EmailSettings {
+  enabled: boolean;
+  reminderDay: 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday';
+  reminderTime: string; // Format: "HH:mm" (24-hour format)
+  fromEmail: string;
+  thresholdHours: number; // Minimum hours to consider "complete" schedule
+}
+
 interface SettingsState {
   globalRules: GlobalRules;
   projectRules: ProjectRule[];
   systemPreferences: SystemPreferences;
+  emailSettings: EmailSettings;
   loading: boolean;
   error: string | null;
 }
@@ -52,6 +61,13 @@ const initialState: SettingsState = {
     fiscalYearStart: '01-01',
     colorScheme: 'default',
     defaultView: 'week',
+  },
+  emailSettings: {
+    enabled: false, // Email reminders disabled by default
+    reminderDay: 'thursday',
+    reminderTime: '14:00', // 2 PM
+    fromEmail: 'hathimamirb@gmail.com',
+    thresholdHours: 40, // Consider incomplete if < 40 hours assigned
   },
   loading: false,
   error: null,
@@ -98,10 +114,14 @@ const settingsSlice = createSlice({
     updateSystemPreferences: (state, action: PayloadAction<Partial<SystemPreferences>>) => {
       state.systemPreferences = { ...state.systemPreferences, ...action.payload };
     },
+    updateEmailSettings: (state, action: PayloadAction<Partial<EmailSettings>>) => {
+      state.emailSettings = { ...state.emailSettings, ...action.payload };
+    },
     resetToDefaults: (state) => {
       state.globalRules = initialState.globalRules;
       state.projectRules = initialState.projectRules;
       state.systemPreferences = initialState.systemPreferences;
+      state.emailSettings = initialState.emailSettings;
     },
   },
 });
@@ -114,6 +134,7 @@ export const {
   updateProjectRule,
   deleteProjectRule,
   updateSystemPreferences,
+  updateEmailSettings,
   resetToDefaults,
 } = settingsSlice.actions;
 

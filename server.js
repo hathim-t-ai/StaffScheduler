@@ -21,6 +21,8 @@ const axios = require('axios');
 const path    = require('path');
 // Supabase client
 const supabase = require('./supabaseClient');
+const emailService = require('./services/emailService');
+const emailScheduler = require('./services/emailScheduler');
 const useCrew = process.env.USE_CREW === '1';
 
 // Utility: split "a,b,c" into ["a","b","c"]   (trims spaces, ignores empties)
@@ -43,7 +45,8 @@ const {
   parseReplacement,
   directBooking,
   findProjects,
-  aggregateProjects
+  aggregateProjects,
+  sendEmailReminder
 } = require('./chatFunctions');
 
 // Default grade rates mapping (AED per hour), can override via GRADE_RATES_JSON env var
@@ -135,7 +138,8 @@ const functionMapping = {
   getProjectDetails,
   getTeamAvailability,
   getProductiveHours,
-  getStaffProductiveHours
+  getStaffProductiveHours,
+  sendEmailReminder
 };
 
 const functionDefinitions = [
@@ -227,6 +231,17 @@ const functionDefinitions = [
         to:  { type:'string', format:'date' }
       },
       required:['staffName','from','to']
+    }
+  },
+  {
+    name: 'sendEmailReminder',
+    description: 'Send email reminder to a specific staff member to complete their schedule',
+    parameters: {
+      type: 'object',
+      properties: {
+        staffName: { type: 'string', description: 'Name of the staff member to send reminder to' }
+      },
+      required: ['staffName']
     }
   }
 ];
@@ -1244,6 +1259,129 @@ app.get('/api/analytics/range', async (req, res) => {
   } catch (e) {
     console.error('/api/analytics/range', e);
     res.status(500).json({ error: 'analytics_failed', message: e.message });
+  }
+});
+
+/* ============================================================== */
+/*  EMAIL AGENT ENDPOINTS                                         */
+/* ============================================================== */
+
+// Check email service configuration status
+app.get('/api/email/status', async (req, res) => {
+  try {
+    const configured = emailService.isConfigured();
+    res.json({ configured, message: configured ? 'Email service ready' : 'Email service not configured' });
+  } catch (error) {
+    console.error('Email status check error:', error);
+    res.status(500).json({ error: 'Failed to check email status', message: error.message });
+  }
+});
+
+// Send automatic reminders to staff with incomplete schedules
+app.post('/api/email/send-reminders', async (req, res) => {
+  try {
+    const { thresholdHours = 40 } = req.body;
+    const result = await emailService.sendAutomaticReminders(thresholdHours);
+    res.json(result);
+  } catch (error) {
+    console.error('Send reminders error:', error);
+    res.status(500).json({ 
+      error: 'Failed to send reminders', 
+      message: error.message,
+      success: false 
+    });
+  }
+});
+
+// Send custom reminder to specific staff member (for chatbot)
+app.post('/api/email/send-custom-reminder', async (req, res) => {
+  try {
+    const { staffName } = req.body;
+    if (!staffName) {
+      return res.status(400).json({ error: 'Staff name is required' });
+    }
+    
+    const result = await emailService.sendCustomReminder(staffName);
+    res.json(result);
+  } catch (error) {
+    console.error('Send custom reminder error:', error);
+    res.status(500).json({ 
+      error: 'Failed to send custom reminder', 
+      message: error.message,
+      success: false 
+    });
+  }
+});
+
+// Get staff with incomplete schedules (for preview/checking)
+app.get('/api/email/incomplete-staff', async (req, res) => {
+  try {
+    const { thresholdHours = 40 } = req.query;
+    const incompleteStaff = await emailService.getStaffWithIncompleteSchedules(Number(thresholdHours));
+    res.json({ 
+      staff: incompleteStaff,
+      count: incompleteStaff.length,
+      thresholdHours: Number(thresholdHours)
+    });
+  } catch (error) {
+    console.error('Get incomplete staff error:', error);
+    res.status(500).json({ 
+      error: 'Failed to get incomplete staff', 
+      message: error.message 
+    });
+  }
+});
+
+// Get schedule information
+app.get('/api/email/schedule-info', async (req, res) => {
+  try {
+    const scheduleInfo = emailScheduler.getScheduleInfo();
+    res.json(scheduleInfo);
+  } catch (error) {
+    console.error('Get schedule info error:', error);
+    res.status(500).json({ 
+      error: 'Failed to get schedule info', 
+      message: error.message 
+    });
+  }
+});
+
+// Update email schedule based on settings
+app.post('/api/email/update-schedule', async (req, res) => {
+  try {
+    const { emailSettings } = req.body;
+    if (!emailSettings) {
+      return res.status(400).json({ error: 'Email settings are required' });
+    }
+    
+    emailScheduler.updateSchedule(emailSettings);
+    const scheduleInfo = emailScheduler.getScheduleInfo();
+    
+    res.json({ 
+      success: true, 
+      message: 'Email schedule updated successfully',
+      scheduleInfo 
+    });
+  } catch (error) {
+    console.error('Update schedule error:', error);
+    res.status(500).json({ 
+      error: 'Failed to update schedule', 
+      message: error.message 
+    });
+  }
+});
+
+// Manually trigger email reminders (for testing)
+app.post('/api/email/send-now', async (req, res) => {
+  try {
+    const result = await emailScheduler.runNow();
+    res.json(result);
+  } catch (error) {
+    console.error('Send now error:', error);
+    res.status(500).json({ 
+      error: 'Failed to send reminders now', 
+      message: error.message 
+    });
   }
 });
 
