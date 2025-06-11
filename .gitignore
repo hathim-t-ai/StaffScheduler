@@ -67,3 +67,4 @@ tasks/
 *.cursor
 *.cursor/rules
 
+.cursor/
