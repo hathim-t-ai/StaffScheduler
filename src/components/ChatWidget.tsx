@@ -1,4 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { useDispatch, useSelector } from 'react-redux';
+import { RootState } from '../store';
 
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 import ChatIcon from '@mui/icons-material/Chat';
@@ -40,6 +42,7 @@ import format from 'date-fns/format';
 import Accordion from '@mui/material/Accordion';
 import AccordionSummary from '@mui/material/AccordionSummary';
 import AccordionDetails from '@mui/material/AccordionDetails';
+import { setTasks } from '../store/slices/scheduleSlice';
 
 interface Message {
   sender: 'user' | 'bot';
@@ -72,6 +75,9 @@ const ChatWidget: React.FC = () => {
   const [open, setOpen] = useState(false);
   const [minimized, setMinimized] = useState(false);
   const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
+  
+  const dispatch = useDispatch();
+  const scheduleTasks = useSelector((state: RootState) => state.schedule.tasks);
   
   // Load messages from localStorage on initialization
   const loadMessagesFromStorage = (): Message[] => {
@@ -500,15 +506,46 @@ const ChatWidget: React.FC = () => {
         });
       }
       
-      // 🚀 AUTO-REFRESH SCHEDULE: Trigger calendar refresh if booking was successful
-      if (
-        (res.data.resolvedMatches && res.data.resolvedMatches.length > 0) ||
-        (res.data.booking && (Array.isArray(res.data.booking) ? res.data.booking.length > 0 : true)) ||
-        (res.data.assignments && Array.isArray(res.data.assignments) && res.data.assignments.length > 0)
-      ) {
-        console.log('🔄 Booking successful! Refreshing schedule page...');
-        // Dispatch custom event to refresh the schedule calendar
-        window.dispatchEvent(new CustomEvent('refreshCalendar'));
+      // 🚀 AUTO-REFRESH SCHEDULE (Option A)
+      // Detect any kind of successful booking and always notify the calendar page.
+      const bookingHappened = (
+        Array.isArray(res.data?.resolvedMatches) && res.data.resolvedMatches.length > 0
+      ) || (
+        Array.isArray(res.data?.booking) && res.data.booking.length > 0
+      ) || (
+        Boolean(res.data?.booking) && !Array.isArray(res.data?.booking) // truthy non-array booking obj
+      ) || (
+        Array.isArray(res.data?.assignments) && res.data.assignments.length > 0
+      );
+
+      if (bookingHappened) {
+        console.log('🔄 Booking detected – updating Redux store and refreshing calendar');
+        // Wait for database to finish bulk upsert, then fetch complete data
+        const fetchAndUpdate = async (attempt = 1) => {
+          try {
+            const { data } = await axios.get('/api/assignments');
+            const tasks = data.map((a: any) => ({
+              id: a.id,
+              staffId: a.staffId,
+              date: a.date,
+              taskType: a.projectName,
+              hours: a.hours,
+              projectId: a.projectId
+            }));
+            dispatch(setTasks(tasks));
+            window.dispatchEvent(new CustomEvent('refreshCalendar'));
+            console.log(`✅ Calendar updated with ${tasks.length} assignments (attempt ${attempt})`);
+          } catch (e) {
+            console.error(`Failed to fetch updated assignments (attempt ${attempt}):`, e);
+            // Retry once more after 1 second if first attempt fails
+            if (attempt === 1) {
+              setTimeout(() => fetchAndUpdate(2), 1000);
+            }
+          }
+        };
+        
+        // Wait longer for bulk operations to complete
+        setTimeout(() => fetchAndUpdate(1), 2000);
       }
       
       // Clear selections after successful scheduling
@@ -573,7 +610,7 @@ const ChatWidget: React.FC = () => {
             ? '/api/ask'
             : '/api/orchestrate';
           axios.post(retryEndpoint, originalPayload)
-            .then(res => {
+            .then(async res => {
               // Process the response and visualize chain-of-thought for ask mode or handle scheduling for agent mode
               if (mode === 'ask' && typeof res.data.content === 'string') {
                 const finalAnswer = res.data.content.trim();
@@ -620,15 +657,46 @@ const ChatWidget: React.FC = () => {
                 });
               }
               
-              // 🚀 AUTO-REFRESH SCHEDULE: Trigger calendar refresh if booking was successful (retry path)
-              if (
-                (res.data.resolvedMatches && res.data.resolvedMatches.length > 0) ||
-                (res.data.booking && (Array.isArray(res.data.booking) ? res.data.booking.length > 0 : true)) ||
-                (res.data.assignments && Array.isArray(res.data.assignments) && res.data.assignments.length > 0)
-              ) {
-                console.log('🔄 Booking successful on retry! Refreshing schedule page...');
-                // Dispatch custom event to refresh the schedule calendar
-                window.dispatchEvent(new CustomEvent('refreshCalendar'));
+              // 🚀 AUTO-REFRESH SCHEDULE (Option A)
+              // Detect any kind of successful booking and always notify the calendar page.
+              const bookingHappened = (
+                Array.isArray(res.data?.resolvedMatches) && res.data.resolvedMatches.length > 0
+              ) || (
+                Array.isArray(res.data?.booking) && res.data.booking.length > 0
+              ) || (
+                Boolean(res.data?.booking) && !Array.isArray(res.data?.booking) // truthy non-array booking obj
+              ) || (
+                Array.isArray(res.data?.assignments) && res.data.assignments.length > 0
+              );
+
+              if (bookingHappened) {
+                console.log('🔄 Booking detected – updating Redux store and refreshing calendar');
+                // Wait for database to finish bulk upsert, then fetch complete data
+                const fetchAndUpdate = async (attempt = 1) => {
+                  try {
+                    const { data } = await axios.get('/api/assignments');
+                    const tasks = data.map((a: any) => ({
+                      id: a.id,
+                      staffId: a.staffId,
+                      date: a.date,
+                      taskType: a.projectName,
+                      hours: a.hours,
+                      projectId: a.projectId
+                    }));
+                    dispatch(setTasks(tasks));
+                    window.dispatchEvent(new CustomEvent('refreshCalendar'));
+                    console.log(`✅ Calendar updated with ${tasks.length} assignments (attempt ${attempt})`);
+                  } catch (e) {
+                    console.error(`Failed to fetch updated assignments (attempt ${attempt}):`, e);
+                    // Retry once more after 1 second if first attempt fails
+                    if (attempt === 1) {
+                      setTimeout(() => fetchAndUpdate(2), 1000);
+                    }
+                  }
+                };
+                
+                // Wait longer for bulk operations to complete
+                setTimeout(() => fetchAndUpdate(1), 2000);
               }
               
               setLoading(false);
