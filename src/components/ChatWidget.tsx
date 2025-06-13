@@ -325,11 +325,35 @@ const ChatWidget: React.FC = () => {
       return;
     }
     // Intercept email reminder requests (e.g., "send reminder to John", "can you send a reminder to John to fill in the scheduler")
-    const emailReminderMatch = lower.match(/(?:send|can\s+you\s+send).*?reminder.*?(?:to\s+)([a-z][a-z\s]+)/i);
+    const emailReminderMatch = lower.match(/(?:send|can\s+you\s+send).*?reminder.*?(?:to\s+)([a-z]+(?:\s+[a-z]+)*)/i);
     if (emailReminderMatch) {
       let staffName = emailReminderMatch[1].trim();
-      // Clean up the staff name by removing common trailing words and phrases
-      staffName = staffName.replace(/\s+(to\s+(complete|fill)|about|for\s+(next|the)|that|please|his|her|their|the\s+(scheduler|schedule)|complete|fill\s+in|scheduler|schedule|next\s+week).*$/i, '').trim();
+      
+      // More comprehensive cleanup: extract only the name part by removing everything after common action words
+      const cleanupPatterns = [
+        /\s+to\s+(book|complete|fill|submit|update).*$/i,
+        /\s+(book|about|for|that|please|hrs|hours).*$/i,
+        /\s+(his|her|their)\s+(hrs|hours|schedule|scheduler).*$/i,
+        /\s+for\s+(next|the|this)\s+(week|month).*$/i,
+        /\s+(scheduler|schedule).*$/i,
+        /\s+next\s+week.*$/i
+      ];
+      
+      for (const pattern of cleanupPatterns) {
+        staffName = staffName.replace(pattern, '').trim();
+      }
+      
+      // Additional safety: if the name still contains non-name words, try to extract just first/last name pattern
+      if (/\b(book|fill|complete|hrs|hours|schedule|scheduler|next|week|for|the)\b/i.test(staffName)) {
+        const nameMatch = staffName.match(/^([a-z]+(?:\s+[a-z]+)?)\s+/i);
+        if (nameMatch) {
+          staffName = nameMatch[1].trim();
+        } else {
+          // Fallback: take only the first two words if they look like names
+          const words = staffName.split(/\s+/).filter(word => /^[a-z]+$/i.test(word));
+          staffName = words.slice(0, 2).join(' ').trim();
+        }
+      }
       // Show user message
       setMessages(prev => [...prev, { sender: 'user', text: input, timestamp: new Date(), type: 'text' }]);
       setInput('');
